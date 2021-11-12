@@ -44,8 +44,10 @@ struct cmd_opts {
     int             nb_pcicards;
     int             numacore;
     int             nbruns;
+    int             timeout;
     unsigned int    maxbitrate;
     int             wait;
+    int             write_csv;
     char*           trace;
     char**          stats;
     int             nb_stats;
@@ -98,6 +100,7 @@ struct                  thread_ctx {
     unsigned int        total_drop;
     unsigned int        total_drop_sz;
     struct pcap_cache*  pcap_cache;
+    FILE*               csv_ptr;
 };
 
 struct                  pcap_ctx {

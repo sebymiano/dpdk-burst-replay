@@ -51,15 +51,6 @@ static struct rte_eth_txconf const txconf = {
     .tx_free_thresh = 32,
 };
 
-static struct rte_eth_rxconf const rxconf = {
-    .rx_thresh = {
-        .pthresh = TX_PTHRESH,
-        .hthresh = TX_HTHRESH,
-        .wthresh = TX_WTHRESH,
-    },
-    .rx_free_thresh = 32,
-};
-
 void* myrealloc(void* ptr, size_t new_size)
 {
     void* res = realloc(ptr, new_size);
@@ -98,7 +89,8 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
         eal_args = myrealloc(eal_args, sizeof(char*) * (cpt + 2));
         if (!eal_args)
             return (NULL);
-        eal_args[cpt - 1] = "--pci-whitelist"; /* overwrite "NULL" */
+        // eal_args[cpt - 1] = "--pci-whitelist"; /* overwrite "NULL" */
+        eal_args[cpt - 1] = "--allow"; /* overwrite "NULL" */
         eal_args[cpt] = opts->pcicards[i];
         eal_args[cpt + 1] = NULL;
         cpt += 2;
@@ -109,7 +101,7 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
         eal_args = myrealloc(eal_args, sizeof(char*) * (cpt + 2));
         if (!eal_args)
             return (NULL);
-        eal_args[cpt - 1] = "--pci-whitelist"; /* overwrite "NULL" */
+        eal_args[cpt - 1] = "--allow"; /* overwrite "NULL" */
         eal_args[cpt] = opts->read_pcicards[i];
         eal_args[cpt + 1] = NULL;
         cpt += 2;
@@ -350,6 +342,7 @@ int remote_thread(void* thread_ctx)
     int                 nb_sent, to_sent, total_to_sent, total_sent;
     int                 nb_drop;
     bool                is_stats_thread = false;
+    int        sem_value;
 
     if (!thread_ctx)
         return (EINVAL);
@@ -387,7 +380,7 @@ int remote_thread(void* thread_ctx)
     #endif
 
     if (!is_stats_thread) {
-        printf("This is the non stats thread\n");
+        printf("This is the PCAP thread\n");
         mbuf = ctx->pcap_cache->mbufs;
 
         /* iterate on each wanted runs */
@@ -427,12 +420,25 @@ int remote_thread(void* thread_ctx)
                 printf("[thread %i]: on loop %i: sent %i pkts (%i were dropped).\n",
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
     #endif /* DEBUG */
+
+
+            sem_getvalue(ctx->sem_stop, &sem_value);
+            if (sem_value > 0) {
+                break;
+            }
         }
     } else {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
 
         bzero(&old_stats, sizeof(old_stats));
+
+        // If we have the CSV file flag enable, let's write the CSV header
+        if (ctx->csv_ptr) {
+            fprintf(ctx->csv_ptr, "#Port,RX-packets,RX-bytes,TX-packets,TX-bytes\n");
+        }
+
+
         while (true) {
             rte_eth_stats_get(ctx->rx_port_id, &stats);
             if (ret) {
@@ -442,28 +448,30 @@ int remote_thread(void* thread_ctx)
             }
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            printf("  RX-packets: %-10"PRIu64"  RX-errors:  %-10"PRIu64
-                "  RX-bytes:  %-10"PRIu64"\n", stats.ipackets - old_stats.ipackets, 
-                                               stats.ierrors - old_stats.ierrors, 
-                                               stats.ibytes - old_stats.ibytes);
-            printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
-            printf("  TX-packets: %-10"PRIu64"  TX-errors:  %-10"PRIu64
-                "  TX-bytes:  %-10"PRIu64"\n", stats.opackets - old_stats.opackets, 
-                                               stats.oerrors - old_stats.oerrors, 
-                                               stats.obytes - old_stats.obytes);
+            if (ctx->csv_ptr) {
+                fprintf(ctx->csv_ptr, "%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
+                                      ctx->rx_port_id, 
+                                      stats.ipackets - old_stats.ipackets,
+                                      stats.ibytes - old_stats.ibytes,
+                                      stats.opackets - old_stats.opackets,
+                                      stats.obytes - old_stats.obytes);
+            }
+            printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"\n", 
+                    stats.ipackets - old_stats.ipackets,
+                    stats.ibytes - old_stats.ibytes);
+            // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
+            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n", 
+                    stats.opackets - old_stats.opackets, 
+                    stats.obytes - old_stats.obytes);
             printf("\n");
 
             memcpy(&old_stats, &stats, sizeof(stats));
             sleep(1);
-            // Sleep for 1 second
-            // ts.tv_sec = 1;
-            // ret = sem_timedwait(ctx->sem_stop, &ts);
-
-            // if (ret == -1 && errno == ETIMEDOUT) {
-            //     continue;
-            // } else {
-            //     break;
-            // }
+            
+            sem_getvalue(ctx->sem_stop, &sem_value);
+            if (sem_value > 0) {
+                break;
+            }
         }
     }
 
@@ -526,12 +534,17 @@ int start_all_threads(const struct cmd_opts* opts,
                      const struct pcap_ctx* pcap)
 {
     struct thread_ctx* ctx = NULL;
-    sem_t sem;
+    sem_t sem, sem_stop;
     unsigned int i;
     int ret;
 
     /* init semaphore for synchronous threads startup */
     if (sem_init(&sem, 0, 0)) {
+        fprintf(stderr, "sem_init failed: %s\n", strerror(errno));
+        return (errno);
+    }
+
+    if (sem_init(&sem_stop, 0, 0)) {
         fprintf(stderr, "sem_init failed: %s\n", strerror(errno));
         return (errno);
     }
@@ -543,6 +556,7 @@ int start_all_threads(const struct cmd_opts* opts,
     bzero(ctx, sizeof(*ctx) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus));
     for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
         ctx[i].sem = &sem;
+        ctx[i].sem_stop = &sem_stop;
         ctx[i].rx_port_id = -1;
         ctx[i].tx_port_id = i;
         ctx[i].nbruns = opts->nbruns;
@@ -551,14 +565,32 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
     }
 
+    /* Here I set the context for the stats threads */
     for (i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus; i++) {
         ctx[i].sem = &sem;
+        ctx[i].sem_stop = &sem_stop;
         ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus;
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
         ctx[i].nb_pkt = pcap->nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
+
+
+        /* Initialize CSV files if the corresponding flag is set */
+        if (opts->write_csv) {
+            char file_name[20];
+            snprintf(file_name, 20, "results_port_%u.csv", i);
+
+            FILE *ptr = fopen(file_name, "w");
+
+            if (ptr == NULL) {
+                fprintf(stderr, "open file failed: %s\n", file_name);
+                free(ctx);
+                return -1;
+            }
+            ctx[i].csv_ptr = ptr;
+        }
     }
 
     /* launch threads, which will wait on the semaphore to start */
@@ -594,8 +626,28 @@ int start_all_threads(const struct cmd_opts* opts,
         }
     }
 
+    printf("Timeout value is: %d\n", opts->timeout);
+    if (opts->timeout > 0) {
+        sleep(opts->timeout);
+
+        for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+            ret = sem_post(&sem_stop);
+            if (ret) {
+                fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
+                free(ctx);
+                return (errno);
+            }
+        }
+    }
+
     /* wait all threads */
     rte_eal_mp_wait_lcore();
+
+    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+        if (opts->write_csv && ctx[i].csv_ptr != NULL) {
+            fclose(ctx[i].csv_ptr);
+        }
+    }
 
     /* get results */
     ret = process_result_stats(cpus, dpdk, opts, ctx);

@@ -25,6 +25,10 @@ void usage(void)
          "--nbruns <1-N> : set the wanted number of replay (1 by default).\n"
          "--wait-enter: will wait until you press ENTER to start the replay (asked\n"
          "  once all the initialization are done)."
+         "--stats PORT1[,PORTX...]: specify the PCI address of the ports where to read the stats from\n"
+         "--read-pci PORT1[,PORTX...]: set the PCI address of the ports where we only read data from (RX-only enabled)\n"
+         "--timeout <1-N> : set the timeout in seconds\n"
+         "--write-csv : if set write the statistics count on a csv file\n"
          /* TODO: */
          /* "[--maxbitrate bitrate]|[--normalspeed] : bitrate not to be exceeded (default: no limit) in ko/s.\n" */
          /* "  specify --normalspeed to replay the trace with the good timings." */
@@ -183,6 +187,11 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
             continue;
         }
 
+        if (!strcmp(av[i], "--write-csv")) {
+            opts->write_csv = 1;
+            continue;
+        }
+
         if (!strcmp(av[i], "--stats")) {
             opts->stats = str_to_stats_list(opts, av[i + 1]);
             i++;
@@ -191,6 +200,17 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
 
         if (!strcmp(av[i], "--read-pci")) {
             opts->read_pcicards = str_to_read_pcicards_list(opts, av[i + 1]);
+            i++;
+            continue;
+        }
+
+        if (!strcmp(av[i], "--timeout")) {
+            /* if no timeout is specified */
+            if (i + 1 >= ac - 2)
+                return (ENOENT);
+            opts->timeout = atoi(av[i + 1]);
+            if (opts->timeout <= 0)
+                return (EPROTO);
             i++;
             continue;
         }
@@ -337,18 +357,7 @@ int main(const int ac, char** av)
     if (ret)
         goto mainExit;
 
-    // if (opts.nb_stats > 0) {
-    //     printf("Initializing stats threads\n");
-    //     stats_ctx = start_stats_threads(&opts, &cpus);
-    //     if (stats_ctx == NULL)
-    //         goto mainExit;
-    // }
-
-    /* start tx threads and wait to start to send pkts */
-    // ret = start_tx_threads(&opts, &cpus, &dpdk, &pcap);
-    // if (ret)
-    //     goto mainExit;
-
+    /* Start all threads (PCAP and Stats) */
     ret = start_all_threads(&opts, &cpus, &dpdk, &pcap);
     if (ret)
         goto mainExit;
@@ -356,17 +365,6 @@ int main(const int ac, char** av)
 mainExit:
     /* cleanup */
     clean_pcap_ctx(&pcap);
-    if (stats_ctx) {
-        for (unsigned i = 0; i < cpus.nb_needed_stats_cpus; i++) {
-            ret = sem_post(stats_ctx->sem_stop);
-            if (ret) {
-                fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
-            }
-        }
-        /* wait all threads */
-        rte_eal_mp_wait_lcore();
-        free(stats_ctx);
-    }
     dpdk_cleanup(&dpdk, &cpus);
     if (cpus.cpus_to_use)
         free(cpus.cpus_to_use);

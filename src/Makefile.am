@@ -12,4 +12,4 @@ DPDK_CFLAGS = -O3 $(shell pkg-config --cflags libdpdk)
 DPDK_LDFLAGS_STATIC = $(shell pkg-config --static --libs libdpdk)
 
 dpdk_replay_CFLAGS	:=	$(CFLAGS) $(DPDK_CFLAGS)
-dpdk_replay_LDFLAGS	:=      $(LDFLAGS) $(DPDK_LDFLAGS_STATIC)
+dpdk_replay_LDFLAGS	:=      $(LDFLAGS) $(DPDK_LDFLAGS_STATIC) -lcsv

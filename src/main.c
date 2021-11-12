@@ -82,6 +82,60 @@ char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis)
     return (list);
 }
 
+char** str_to_stats_list(struct cmd_opts* opts, char* stats)
+{
+    char** list = NULL;
+    int i;
+
+    if (!stats || !opts)
+        return (NULL);
+
+    for (i = 1; ; i++) {
+        list = realloc(list, sizeof(*list) * (i + 1));
+        if (!list)
+            return (NULL);
+        list[i - 1] = stats;
+        list[i] = NULL;
+        while (*stats != '\0' && *stats != ',')
+            stats++;
+        if (*stats == '\0')
+            break;
+        else { /* , */
+            *stats = '\0';
+            stats++;
+        }
+    }
+    opts->nb_stats = i;
+    return (list);
+}
+
+char** str_to_read_pcicards_list(struct cmd_opts* opts, char* reads)
+{
+    char** list = NULL;
+    int i;
+
+    if (!reads || !opts)
+        return (NULL);
+
+    for (i = 1; ; i++) {
+        list = realloc(list, sizeof(*list) * (i + 1));
+        if (!list)
+            return (NULL);
+        list[i - 1] = reads;
+        list[i] = NULL;
+        while (*reads != '\0' && *reads != ',')
+            reads++;
+        if (*reads == '\0')
+            break;
+        else { /* , */
+            *reads = '\0';
+            reads++;
+        }
+    }
+    opts->nb_read_pcicards = i;
+    return (list);
+}
+
 int parse_options(const int ac, char** av, struct cmd_opts* opts)
 {
     int i;
@@ -94,6 +148,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         return (ENOENT);
 
     for (i = 1; i < ac - 2; i++) {
+        printf("Parsing option: %s\n", av[i]);
         /* --numacore numacore */
         if (!strcmp(av[i], "--numacore")) {
             int nc;
@@ -125,6 +180,18 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         /* --wait-enter */
         if (!strcmp(av[i], "--wait-enter")) {
             opts->wait = 1;
+            continue;
+        }
+
+        if (!strcmp(av[i], "--stats")) {
+            opts->stats = str_to_stats_list(opts, av[i + 1]);
+            i++;
+            continue;
+        }
+
+        if (!strcmp(av[i], "--read-pci")) {
+            opts->read_pcicards = str_to_read_pcicards_list(opts, av[i + 1]);
+            i++;
             continue;
         }
 
@@ -214,6 +281,7 @@ int main(const int ac, char** av)
     struct dpdk_ctx         dpdk;
     struct pcap_ctx         pcap;
     int                     ret;
+    struct thread_ctx*      stats_ctx = NULL;
 
     /* set default opts */
     bzero(&cpus, sizeof(cpus));
@@ -265,18 +333,40 @@ int main(const int ac, char** av)
         goto mainExit;
 
     /* init dpdk ports to send pkts */
-    ret = init_dpdk_ports(&cpus);
+    ret = init_dpdk_ports(&cpus, &opts);
     if (ret)
         goto mainExit;
 
+    // if (opts.nb_stats > 0) {
+    //     printf("Initializing stats threads\n");
+    //     stats_ctx = start_stats_threads(&opts, &cpus);
+    //     if (stats_ctx == NULL)
+    //         goto mainExit;
+    // }
+
     /* start tx threads and wait to start to send pkts */
-    ret = start_tx_threads(&opts, &cpus, &dpdk, &pcap);
+    // ret = start_tx_threads(&opts, &cpus, &dpdk, &pcap);
+    // if (ret)
+    //     goto mainExit;
+
+    ret = start_all_threads(&opts, &cpus, &dpdk, &pcap);
     if (ret)
         goto mainExit;
 
 mainExit:
     /* cleanup */
     clean_pcap_ctx(&pcap);
+    if (stats_ctx) {
+        for (unsigned i = 0; i < cpus.nb_needed_stats_cpus; i++) {
+            ret = sem_post(stats_ctx->sem_stop);
+            if (ret) {
+                fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
+            }
+        }
+        /* wait all threads */
+        rte_eal_mp_wait_lcore();
+        free(stats_ctx);
+    }
     dpdk_cleanup(&dpdk, &cpus);
     if (cpus.cpus_to_use)
         free(cpus.cpus_to_use);

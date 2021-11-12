@@ -11,7 +11,9 @@
 
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
+#define RX_QUEUE_SIZE   4096
 #define NB_TX_QUEUES    64 /* ^2 needed to make fast modulos % */
+#define NB_RX_QUEUES    64 /* ^2 needed to make fast modulos % */
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
 
@@ -45,6 +47,10 @@ struct cmd_opts {
     unsigned int    maxbitrate;
     int             wait;
     char*           trace;
+    char**          stats;
+    int             nb_stats;
+    char**          read_pcicards;
+    int             nb_read_pcicards;
 };
 
 /* struct to store the cpus context */
@@ -52,7 +58,8 @@ struct                  cpus_bindings {
     int                 numacores; /* nb of numacores of the system */
     int                 numacore; /* wanted numacore to run */
     unsigned int        nb_available_cpus;
-    unsigned int        nb_needed_cpus;
+    unsigned int        nb_needed_pcap_cpus;
+    unsigned int        nb_needed_stats_cpus;
     unsigned int*       cpus_to_use;
     char*               prefix;
     char*               suffix;
@@ -79,8 +86,10 @@ struct                  dpdk_ctx {
 /* struct to store threads context */
 struct                  thread_ctx {
     sem_t*              sem;
+    sem_t*              sem_stop;
     pthread_t           thread;
     int                 tx_port_id; /* assigned tx port id */
+    int                 rx_port_id; /* assigned tx port id */
     int                 nbruns;
     unsigned int        nb_pkt;
     int                 nb_tx_queues;
@@ -103,28 +112,34 @@ struct                  pcap_ctx {
 */
 
 /* CPUS.C */
-int             init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus);
+int                 init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus);
 
 /* DPDK.C */
-int             init_dpdk_eal_mempool(const struct cmd_opts* opts,
-                                      const struct cpus_bindings* cpus,
-                                      struct dpdk_ctx* dpdk);
-int             init_dpdk_ports(struct cpus_bindings* cpus);
-void*           myrealloc(void* ptr, size_t new_size);
-int             start_tx_threads(const struct cmd_opts* opts,
-                                 const struct cpus_bindings* cpus,
-                                 const struct dpdk_ctx* dpdk,
-                                 const struct pcap_ctx *pcap);
-void            dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus);
+int                 init_dpdk_eal_mempool(const struct cmd_opts* opts,
+                                          const struct cpus_bindings* cpus,
+                                          struct dpdk_ctx* dpdk);
+int                 init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts);
+void*               myrealloc(void* ptr, size_t new_size);
+int                 start_tx_threads(const struct cmd_opts* opts,
+                                     const struct cpus_bindings* cpus,
+                                     const struct dpdk_ctx* dpdk,
+                                     const struct pcap_ctx *pcap);
+int                 start_all_threads(const struct cmd_opts* opts,
+                                     const struct cpus_bindings* cpus,
+                                     const struct dpdk_ctx* dpdk,
+                                     const struct pcap_ctx *pcap);
+struct thread_ctx * start_stats_threads(const struct cmd_opts* opts,
+                                        const struct cpus_bindings* cpus);
+void                dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus);
 
 /* PCAP.C */
-int             preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap);
-int             load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
-                          const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk);
-void            clean_pcap_ctx(struct pcap_ctx* pcap);
+int                 preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap);
+int                 load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
+                              const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk);
+void                clean_pcap_ctx(struct pcap_ctx* pcap);
 
 /* UTILS.C */
-char*           nb_oct_to_human_str(float size);
-unsigned int    get_next_power_of_2(const unsigned int nb);
+char*               nb_oct_to_human_str(float size);
+unsigned int        get_next_power_of_2(const unsigned int nb);
 
 #endif /* __COMMON_H__ */

@@ -432,14 +432,15 @@ int remote_thread(void* thread_ctx)
         struct rte_eth_stats  stats;
 
         bzero(&old_stats, sizeof(old_stats));
-
+        run_cpt = 0;
         // If we have the CSV file flag enable, let's write the CSV header
         if (ctx->csv_ptr) {
-            fprintf(ctx->csv_ptr, "#Port,RX-packets,RX-bytes,TX-packets,TX-bytes\n");
+            fprintf(ctx->csv_ptr, "#Port,Time,RX-packets,RX-bytes,TX-packets,TX-bytes\n");
         }
 
 
         while (true) {
+            run_cpt++;
             rte_eth_stats_get(ctx->rx_port_id, &stats);
             if (ret) {
                 printf("Error while reading stats from port: %u\n", ctx->rx_port_id);
@@ -449,8 +450,8 @@ int remote_thread(void* thread_ctx)
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
             if (ctx->csv_ptr) {
-                fprintf(ctx->csv_ptr, "%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
-                                      ctx->rx_port_id, 
+                fprintf(ctx->csv_ptr, "%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
+                                      ctx->rx_port_id, run_cpt,
                                       stats.ipackets - old_stats.ipackets,
                                       stats.ibytes - old_stats.ibytes,
                                       stats.opackets - old_stats.opackets,

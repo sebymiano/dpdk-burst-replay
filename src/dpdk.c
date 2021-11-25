@@ -96,15 +96,21 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
         cpt += 2;
     }
 
-    // If we setup a device to read packets from
-    for (i = 0; opts->read_pcicards[i]; i++) {
-        eal_args = myrealloc(eal_args, sizeof(char*) * (cpt + 2));
-        if (!eal_args)
-            return (NULL);
-        eal_args[cpt - 1] = "--allow"; /* overwrite "NULL" */
-        eal_args[cpt] = opts->read_pcicards[i];
-        eal_args[cpt + 1] = NULL;
-        cpt += 2;
+    if (opts->nb_stats > 0) {
+        // If we setup a device to read packets from
+        for (i = 0; opts->stats[i]; i++) {
+            if (str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
+                // If the device is already in the list of pci cards used for PCAP we don't need this
+                continue;
+            }
+            eal_args = myrealloc(eal_args, sizeof(char*) * (cpt + 2));
+            if (!eal_args)
+                return (NULL);
+            eal_args[cpt - 1] = "--allow"; /* overwrite "NULL" */
+            eal_args[cpt] = opts->stats[i];
+            eal_args[cpt + 1] = NULL;
+            cpt += 2;
+        }
     }
 
     *eal_args_ac = cpt - 1;
@@ -244,9 +250,9 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
 #else /* if DPDK >= 18.05 */
     nb_ports = rte_eth_dev_count_avail();
 #endif
-    if (nb_ports != cpus->nb_needed_pcap_cpus + opts->nb_read_pcicards) {
+    if (nb_ports != opts->nb_total_ports) {
         printf("%s error: wanted %u NIC ports, found %u\n", __FUNCTION__,
-               cpus->nb_needed_pcap_cpus + opts->nb_read_pcicards, nb_ports);
+               opts->nb_total_ports, nb_ports);
         return (1);
     }
 
@@ -300,7 +306,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
     }
 
     // Now if I have a device to read packets from I need to setup the corresponding port
-    for (i = cpus->nb_needed_pcap_cpus; (unsigned)i < (cpus->nb_needed_pcap_cpus + opts->nb_read_pcicards); i++) {
+    for (i = cpus->nb_needed_pcap_cpus; (unsigned)i < (opts->nb_total_ports); i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {
@@ -460,7 +466,9 @@ int remote_thread(void* thread_ctx)
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"\n", 
                     stats.ipackets - old_stats.ipackets,
                     stats.ibytes - old_stats.ibytes);
-            // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
+            //printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
+            // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
+            // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n", 
                     stats.opackets - old_stats.opackets, 
                     stats.obytes - old_stats.obytes);

@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <semaphore.h>
+#include <stdbool.h>
 
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
@@ -51,8 +52,7 @@ struct cmd_opts {
     char*           trace;
     char**          stats;
     int             nb_stats;
-    char**          read_pcicards;
-    int             nb_read_pcicards;
+    int             nb_total_ports;
 };
 
 /* struct to store the cpus context */
@@ -134,6 +134,7 @@ int                 start_all_threads(const struct cmd_opts* opts,
 struct thread_ctx * start_stats_threads(const struct cmd_opts* opts,
                                         const struct cpus_bindings* cpus);
 void                dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus);
+bool                str_in_list(const char *str, const char **list, int len);
 
 /* PCAP.C */
 int                 preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap);

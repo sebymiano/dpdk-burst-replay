@@ -86,6 +86,15 @@ char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis)
     return (list);
 }
 
+bool str_in_list(const char *str, const char **list, int len) {
+    for (int i = 0; i < len; i++) {
+        if (strcmp(str, list[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 char** str_to_stats_list(struct cmd_opts* opts, char* stats)
 {
     char** list = NULL;
@@ -113,33 +122,6 @@ char** str_to_stats_list(struct cmd_opts* opts, char* stats)
     return (list);
 }
 
-char** str_to_read_pcicards_list(struct cmd_opts* opts, char* reads)
-{
-    char** list = NULL;
-    int i;
-
-    if (!reads || !opts)
-        return (NULL);
-
-    for (i = 1; ; i++) {
-        list = realloc(list, sizeof(*list) * (i + 1));
-        if (!list)
-            return (NULL);
-        list[i - 1] = reads;
-        list[i] = NULL;
-        while (*reads != '\0' && *reads != ',')
-            reads++;
-        if (*reads == '\0')
-            break;
-        else { /* , */
-            *reads = '\0';
-            reads++;
-        }
-    }
-    opts->nb_read_pcicards = i;
-    return (list);
-}
-
 int parse_options(const int ac, char** av, struct cmd_opts* opts)
 {
     int i;
@@ -152,7 +134,6 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         return (ENOENT);
 
     for (i = 1; i < ac - 2; i++) {
-        printf("Parsing option: %s\n", av[i]);
         /* --numacore numacore */
         if (!strcmp(av[i], "--numacore")) {
             int nc;
@@ -198,12 +179,6 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
             continue;
         }
 
-        if (!strcmp(av[i], "--read-pci")) {
-            opts->read_pcicards = str_to_read_pcicards_list(opts, av[i + 1]);
-            i++;
-            continue;
-        }
-
         if (!strcmp(av[i], "--timeout")) {
             /* if no timeout is specified */
             if (i + 1 >= ac - 2)
@@ -221,6 +196,17 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         return (EPROTO);
     opts->trace = av[i];
     opts->pcicards = str_to_pcicards_list(opts, av[i + 1]);
+
+    opts->nb_total_ports = opts->nb_pcicards;
+    if (opts->nb_stats > 0) {
+        for (int i = 0; opts->stats[i]; i++) {
+            if (!str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
+                // If the device is already in the list of pci cards used for PCAP we don't count it
+                opts->nb_total_ports += 1;
+            }
+        }
+    }
+
     return (0);
 }
 

@@ -92,10 +92,12 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
     cpus->nb_needed_pcap_cpus = i;
     printf("-> Needed cpus for PCAP: %u\n", cpus->nb_needed_pcap_cpus);
 
-    /* calculate the number of needed cpu cores for stats*/
-    for (i = 0; opts->stats[i]; i++);
-    cpus->nb_needed_stats_cpus = i;
-    printf("-> Needed cpus for stats: %u\n", cpus->nb_needed_stats_cpus);
+    if (opts->nb_stats > 0) {
+        /* calculate the number of needed cpu cores for stats*/
+        for (i = 0; opts->stats[i]; i++);
+        cpus->nb_needed_stats_cpus = i;
+        printf("-> Needed cpus for stats: %u\n", cpus->nb_needed_stats_cpus);
+    }
 
     /* lookup on cores ID to use */
     ret = find_cpus_to_use(opts, cpus);

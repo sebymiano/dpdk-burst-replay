@@ -49,10 +49,13 @@ struct cmd_opts {
     unsigned int    maxbitrate;
     int             wait;
     int             write_csv;
+    int             slow_mode;
     char*           trace;
     char**          stats;
     int             nb_stats;
     int             nb_total_ports;
+    int             nb_stats_file_name;
+    char**          stats_name;
 };
 
 /* struct to store the cpus context */
@@ -101,6 +104,8 @@ struct                  thread_ctx {
     unsigned int        total_drop_sz;
     struct pcap_cache*  pcap_cache;
     FILE*               csv_ptr;
+    int                 slow_mode;
+    int                 timeout;
 };
 
 struct                  pcap_ctx {

@@ -63,20 +63,23 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
                      const struct dpdk_ctx* dpdk, int* eal_args_ac)
 {
     char    buf_coremask[30];
+    char    file_prefix[30];
     char**  eal_args;
     int     i, cpt;
 
     if (!opts || !cpus || !dpdk)
         return (NULL);
 
+    int current_pid = getpid();
     /* Set EAL init parameters */
     snprintf(buf_coremask, 20, "0x%lx", cpus->coremask);
+    snprintf(file_prefix, 20, "dpdkreplay_%d", current_pid);
     char *pre_eal_args[] = {
         "./dpdk-replay",
         "-c", strdup(buf_coremask),
         "-n", "1", /* NUM MEM CHANNELS */
         "--proc-type", "auto",
-        "--file-prefix", "dpdkreplay_",
+        "--file-prefix", strndup(file_prefix, strlen(file_prefix)),
         NULL
     };
     /* fill pci whitelist args */
@@ -386,7 +389,7 @@ int remote_thread(void* thread_ctx)
     #endif
 
     if (!is_stats_thread) {
-        printf("This is the PCAP thread\n");
+        printf("Sending PCAP trace. Wait %d seconds\n", ctx->timeout);
         mbuf = ctx->pcap_cache->mbufs;
 
         /* iterate on each wanted runs */
@@ -431,6 +434,13 @@ int remote_thread(void* thread_ctx)
             sem_getvalue(ctx->sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
+            }
+
+            if (ctx->slow_mode) {
+                // TODO: Better control of sending rate in the future
+                sleep(1);
+                // Sleep for 1.5 seconds
+                // usleep(1.5*1000000);
             }
         }
     } else {
@@ -572,6 +582,8 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
         ctx[i].nb_pkt = pcap->nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].slow_mode = opts->slow_mode;
+        ctx[i].timeout = opts->timeout;
     }
 
     /* Here I set the context for the stats threads */
@@ -584,12 +596,18 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
         ctx[i].nb_pkt = pcap->nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].slow_mode = opts->slow_mode;
+        ctx[i].timeout = opts->timeout;
 
-
+        int port_no = i - cpus->nb_needed_pcap_cpus;
         /* Initialize CSV files if the corresponding flag is set */
         if (opts->write_csv) {
-            char file_name[20];
-            snprintf(file_name, 20, "results_port_%u.csv", i);
+            char file_name[30];
+            if (opts->nb_stats_file_name > 0) {
+                strncpy(file_name, opts->stats_name[port_no], 30);
+            } else {
+                snprintf(file_name, 30, "results_port_%u.csv", port_no);
+            }
 
             FILE *ptr = fopen(file_name, "w");
 

@@ -122,6 +122,34 @@ char** str_to_stats_list(struct cmd_opts* opts, char* stats)
     return (list);
 }
 
+char** str_to_stats_name_list(struct cmd_opts* opts, char* stats)
+{
+    char** list = NULL;
+    int i;
+
+    if (!stats || !opts)
+        return (NULL);
+
+    for (i = 1; ; i++) {
+        list = realloc(list, sizeof(*list) * (i + 1));
+        if (!list)
+            return (NULL);
+        list[i - 1] = stats;
+        list[i] = NULL;
+        while (*stats != '\0' && *stats != ',')
+            stats++;
+        if (*stats == '\0')
+            break;
+        else { /* , */
+            *stats = '\0';
+            stats++;
+        }
+    }
+
+    opts->nb_stats_file_name = i;
+    return (list);
+}
+
 int parse_options(const int ac, char** av, struct cmd_opts* opts)
 {
     int i;
@@ -173,8 +201,19 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
             continue;
         }
 
+        if (!strcmp(av[i], "--slow-mode")) {
+            opts->slow_mode = 1;
+            continue;
+        }
+
         if (!strcmp(av[i], "--stats")) {
             opts->stats = str_to_stats_list(opts, av[i + 1]);
+            i++;
+            continue;
+        }
+
+        if (!strcmp(av[i], "--stats-name")) {
+            opts->stats_name = str_to_stats_name_list(opts, av[i + 1]);
             i++;
             continue;
         }
@@ -205,6 +244,11 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
                 opts->nb_total_ports += 1;
             }
         }
+    }
+
+    if (opts->nb_stats_file_name > 0 && opts->nb_stats_file_name != opts->nb_stats) {
+        printf("You should provide the same number of file name and stats ports\n");
+        return (EPROTO);
     }
 
     return (0);

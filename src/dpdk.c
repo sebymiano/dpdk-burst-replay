@@ -130,6 +130,8 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
+    rte_eth_promiscuous_enable(port);
+
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
                               0, /* nb rx queue */

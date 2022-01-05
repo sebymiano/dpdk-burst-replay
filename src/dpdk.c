@@ -184,6 +184,7 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
 int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
 {
     int                 ret, i;
+    struct rte_eth_dev_info dev_info;
 #ifdef DEBUG
     struct rte_eth_link eth_link;
 #endif /* DEBUG */
@@ -195,6 +196,45 @@ int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
 
     if (ret) {
         fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        return (-1);
+    }
+
+     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
+    if (rte_eth_dev_configure(port,
+                              NB_TX_QUEUES, /* nb rx queue */
+                              NB_TX_QUEUES, /* nb tx queue */
+                              &ethconf) < 0) {
+        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        return (-1);
+    }
+
+    ret = rte_eth_dev_info_get(port, &dev_info);
+    if (ret != 0) {
+        fprintf(stderr, "DPDK: Failed to get dev info on port: %d\n", port);
+        return (-1);
+    }
+
+    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", 512,
+	                                    256, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+
+    /* Then allocate and set up the transmit queues for this Ethernet device  */
+    for (i = 0; i < NB_TX_QUEUES; i++) {
+        ret = rte_eth_rx_queue_setup(port,
+                                     i,
+                                     TX_QUEUE_SIZE,
+                                     cpus->numacore,
+                                     &dev_info.default_rxconf,
+                                     mbuf_pool);
+        if (ret < 0) {
+            fprintf(stderr, "DPDK: RTE ETH Ethernet device rx queue %i setup failed: %s",
+                    i, strerror(-ret));
+            return (ret);
+        }
+    }
+
+    /* Start the ethernet device */
+    if (rte_eth_dev_start(port) < 0) {
+        fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
         return (-1);
     }
 
@@ -229,7 +269,7 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
 #if API_OLDEST_THAN(17, 05)
     rte_set_log_level(RTE_LOG_ERR);
 #else /* if DPDK >= 17.05 */
-    rte_log_set_global_level(RTE_LOG_ERR);
+    rte_log_set_global_level(RTE_LOG_INFO);
 #endif
 
     /* craft an eal arg list */

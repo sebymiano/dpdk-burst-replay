@@ -215,7 +215,10 @@ int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
     }
 
     struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", 512,
-	                                    256, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+	                                    256, 0, RTE_MBUF_DEFAULT_BUF_SIZE, cpus->numacore);
+
+    if (mbuf_pool == NULL)
+		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */
     for (i = 0; i < NB_TX_QUEUES; i++) {

@@ -130,7 +130,12 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
-    rte_eth_promiscuous_enable(port);
+    ret = rte_eth_promiscuous_enable(port);
+
+    if (ret) {
+        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        return (-1);
+    }
 
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
@@ -186,7 +191,12 @@ int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
-    rte_eth_promiscuous_enable(port);
+    ret = rte_eth_promiscuous_enable(port);
+
+    if (ret) {
+        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        return (-1);
+    }
 
 #ifdef DEBUG
     /* Get link status and display it. */

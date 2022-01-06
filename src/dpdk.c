@@ -272,6 +272,20 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         return (-1);
     }
 
+    if (cpus->pktmbuf_pool == NULL) {
+        cpus->pktmbuf_pool = rte_pktmbuf_pool_create("Default RX", 8192,
+					MEMPOOL_CACHE_SIZE, 0,
+					RTE_MBUF_DEFAULT_BUF_SIZE,
+					cpus->numacore);
+    }
+
+    if (cpus->pktmbuf_pool == NULL) {
+        fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
+        return (-1);
+    } else {
+        printf("Allocated mbuf pool on socket %d\n", cpus->numacore);
+    }
+
     /* Then allocate and set up the transmit queues for this Ethernet device  */
     for (int q = 0; q < NB_RX_QUEUES; q++) {
         struct rte_eth_rxconf rxq_conf;
@@ -285,16 +299,16 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         rxq_conf = dev_info.default_rxconf;
         rxq_conf.offloads = rx_port_conf.rxmode.offloads;
 
-        cpus->q[q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q,
-							  512, cpus->numacore, 256);
+        // cpus->q[q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q,
+		// 					  512, cpus->numacore, 256);
 
-        if (cpus->q[q].rx_mp == NULL) {
-            fprintf(stderr, "Cannot init port %d for Default RX mbufs\n", port);
-            return (-1);
-        }
+        // if (cpus->q[q].rx_mp == NULL) {
+        //     fprintf(stderr, "Cannot init port %d for Default RX mbufs\n", port);
+        //     return (-1);
+        // }
 
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
-						             &rxq_conf, cpus->q[q].rx_mp);
+						             &rxq_conf, cpus->pktmbuf_pool);
 
         if (ret < 0) {
             fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",

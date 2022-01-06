@@ -18,6 +18,7 @@
 #define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
+#define MEMPOOL_CACHE_SIZE 256
 
 #define RTE_TEST_RX_DESC_DEFAULT 1024
 
@@ -80,7 +81,8 @@ struct                  cpus_bindings {
     uint64_t            coremask;
     struct q_info {
         struct rte_mempool *rx_mp;       /**< Pool pointer for port RX mbufs */
-    } q[NB_RX_QUEUES]
+    } q[NB_RX_QUEUES];
+    struct rte_mempool *pktmbuf_pool;
 };
 
 /* struct corresponding to a cache for one NIC port */

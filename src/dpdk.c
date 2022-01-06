@@ -149,16 +149,9 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
-    ret = rte_eth_promiscuous_enable(port);
-
-    if (ret) {
-        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
-        return (-1);
-    }
-
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
-                              0, /* nb rx queue */
+                              NB_RX_QUEUES, /* nb rx queue */
                               NB_TX_QUEUES, /* nb tx queue */
                               &ethconf) < 0) {
         fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
@@ -179,9 +172,21 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
         }
     }
 
+    if (dpdk_init_rx_queues(cpus, port) != 0) {
+        fprintf(stderr, "DPDK: Error during initialization of RX queues for port %d\n", port);
+        return (-1);
+    }
+
     /* Start the ethernet device */
     if (rte_eth_dev_start(port) < 0) {
         fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
+        return (-1);
+    }
+
+    ret = rte_eth_promiscuous_enable(port);
+
+    if (ret) {
+        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
         return (-1);
     }
 
@@ -222,14 +227,9 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 	return mp;
 }
 
-int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
-{
+int dpdk_init_rx_conf(struct cpus_bindings* cpus, int port, struct rte_eth_conf *local_conf) {
     int                 ret, i;
     struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
-    struct rte_eth_conf local_port_conf = rx_port_conf;
-#ifdef DEBUG
-    struct rte_eth_link eth_link;
-#endif /* DEBUG */
 
     if (!cpus)
         return (EINVAL);
@@ -241,28 +241,26 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
             port, strerror(-ret));
 
     if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE)
-        local_port_conf.txmode.offloads |=
+        local_conf->txmode.offloads |=
             DEV_TX_OFFLOAD_MBUF_FAST_FREE;
 
-    local_port_conf.rx_adv_conf.rss_conf.rss_hf &=
+    local_conf->rx_adv_conf.rss_conf.rss_hf &=
         dev_info.flow_type_rss_offloads;
-    if (local_port_conf.rx_adv_conf.rss_conf.rss_hf !=
+    if (local_conf->rx_adv_conf.rss_conf.rss_hf !=
             rx_port_conf.rx_adv_conf.rss_conf.rss_hf) {
         printf("Port %u modified RSS hash function based on hardware support,"
             "requested:%#"PRIx64" configured:%#"PRIx64"\n",
             port,
             rx_port_conf.rx_adv_conf.rss_conf.rss_hf,
-            local_port_conf.rx_adv_conf.rss_conf.rss_hf);
+            local_conf->rx_adv_conf.rss_conf.rss_hf);
     }
 
-    /* Configure for each port (ethernet device), the number of rx queues & tx queues */
-    if (rte_eth_dev_configure(port,
-                              NB_RX_QUEUES, /* nb rx queue */
-                              0, /* nb tx queue */
-                              &local_port_conf) < 0) {
-        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
-        return (-1);
-    }
+    return 0;
+}
+
+int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
+    int                 ret, i;
+    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
 
     uint16_t nb_txd = 0;
     ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
@@ -272,23 +270,30 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         return (-1);
     }
 
-    if (cpus->pktmbuf_pool == NULL) {
-        cpus->pktmbuf_pool = rte_pktmbuf_pool_create("Default RX", 8192,
-					MEMPOOL_CACHE_SIZE, 0,
-					RTE_MBUF_DEFAULT_BUF_SIZE,
-					cpus->numacore);
-    }
+    // if (cpus->pktmbuf_pool == NULL) {
+    //     cpus->pktmbuf_pool = rte_pktmbuf_pool_create("Default RX", 8192,
+	// 				MEMPOOL_CACHE_SIZE, 0,
+	// 				RTE_MBUF_DEFAULT_BUF_SIZE,
+	// 				cpus->numacore);
+    // }
 
-    if (cpus->pktmbuf_pool == NULL) {
-        fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
-        return (-1);
-    } else {
-        printf("Allocated mbuf pool on socket %d\n", cpus->numacore);
-    }
+    // if (cpus->pktmbuf_pool == NULL) {
+    //     fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
+    //     return (-1);
+    // } else {
+    //     printf("Allocated mbuf pool on socket %d\n", cpus->numacore);
+    // }
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */
     for (int q = 0; q < NB_RX_QUEUES; q++) {
         struct rte_eth_rxconf rxq_conf;
+
+        cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, 8192, 
+                                    cpus->numacore, MEMPOOL_CACHE_SIZE);
+        if (cpus->q[port][q].rx_mp == NULL) {
+            fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
+            return (-1);
+        }
 
         ret = rte_eth_dev_info_get(port, &dev_info);
         if (ret != 0) {
@@ -300,13 +305,41 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         rxq_conf.offloads = rx_port_conf.rxmode.offloads;
 
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
-						             &rxq_conf, cpus->pktmbuf_pool);
+						             &rxq_conf, cpus->q[port][q].rx_mp);
 
         if (ret < 0) {
             fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
                     i, strerror(-ret));
             return (ret);
         }
+    }
+
+    return 0;
+}
+
+int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
+{
+    int                 ret, i;
+    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
+    struct rte_eth_conf local_port_conf = ethconf;
+#ifdef DEBUG
+    struct rte_eth_link eth_link;
+#endif /* DEBUG */
+
+    // dpdk_init_rx_conf(cpus, port, &local_port_conf);
+
+    /* Configure for each port (ethernet device), the number of rx queues & tx queues */
+    if (rte_eth_dev_configure(port,
+                              NB_RX_QUEUES, /* nb rx queue */
+                              0, /* nb tx queue */
+                              &local_port_conf) < 0) {
+        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        return (-1);
+    }
+
+    if (dpdk_init_rx_queues(cpus, port) != 0) {
+        fprintf(stderr, "DPDK: Error during initialization of RX queues for port %d\n", port);
+        return (-1);
     }
 
     /* Start the ethernet device */

@@ -15,7 +15,8 @@
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
 #define NB_TX_QUEUES    64 /* ^2 needed to make fast modulos % */
-#define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
+#define NB_RX_QUEUES    64 /* ^2 needed to make fast modulos % */
+#define NB_MAX_PORTS    5
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
 #define MEMPOOL_CACHE_SIZE 256
@@ -83,7 +84,7 @@ struct                  cpus_bindings {
     uint64_t            coremask;
     struct q_info {
         struct rte_mempool *rx_mp;       /**< Pool pointer for port RX mbufs */
-    } q[NB_RX_QUEUES];
+    } q[NB_MAX_PORTS][NB_RX_QUEUES];
     struct rte_mempool *pktmbuf_pool;
 };
 

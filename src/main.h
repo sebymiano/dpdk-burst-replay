@@ -15,9 +15,11 @@
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
 #define NB_TX_QUEUES    64 /* ^2 needed to make fast modulos % */
-#define NB_RX_QUEUES    64 /* ^2 needed to make fast modulos % */
+#define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
+
+#define RTE_TEST_RX_DESC_DEFAULT 1024
 
 #define PG_JUMBO_FRAME_LEN (9600 + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN)
 #define PG_ETHER_MAX_JUMBO_FRAME_LEN   PG_JUMBO_FRAME_LEN
@@ -43,6 +45,8 @@
     ((defined RTE_VER_YEAR && RTE_VER_YEAR == year        \
       && defined RTE_VER_MONTH && RTE_VER_MONTH >= month) \
      || defined RTE_VER_YEAR && RTE_VER_YEAR >= year)
+
+static uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
 
 /* struct to store the command line args */
 struct cmd_opts {

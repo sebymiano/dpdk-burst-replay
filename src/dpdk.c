@@ -42,6 +42,25 @@ static struct rte_eth_conf ethconf = {
     },
 };
 
+static struct rte_eth_conf rx_port_conf = {
+	.rxmode = {
+		.mq_mode	= ETH_MQ_RX_RSS,
+		.max_rx_pkt_len = RTE_ETHER_MAX_LEN,
+		.split_hdr_size = 0,
+		.offloads = DEV_RX_OFFLOAD_CHECKSUM,
+	},
+	.rx_adv_conf = {
+		.rss_conf = {
+			.rss_key = NULL,
+			.rss_hf = ETH_RSS_IP | ETH_RSS_UDP |
+				ETH_RSS_TCP | ETH_RSS_SCTP,
+		},
+	},
+	.txmode = {
+		.mq_mode = ETH_MQ_TX_NONE,
+	},
+};
+
 static struct rte_eth_txconf const txconf = {
     .tx_thresh = {
         .pthresh = TX_PTHRESH,
@@ -207,6 +226,7 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 {
     int                 ret, i;
     struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
+    struct rte_eth_conf local_port_conf = rx_port_conf;
 #ifdef DEBUG
     struct rte_eth_link eth_link;
 #endif /* DEBUG */
@@ -214,18 +234,56 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
+    ret = rte_eth_dev_info_get(port, &dev_info);
+    if (ret != 0)
+        rte_exit(EXIT_FAILURE,
+            "Error during getting device (port %u) info: %s\n",
+            port, strerror(-ret));
+
+    if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE)
+        local_port_conf.txmode.offloads |=
+            DEV_TX_OFFLOAD_MBUF_FAST_FREE;
+
+    local_port_conf.rx_adv_conf.rss_conf.rss_hf &=
+        dev_info.flow_type_rss_offloads;
+    if (local_port_conf.rx_adv_conf.rss_conf.rss_hf !=
+            rx_port_conf.rx_adv_conf.rss_conf.rss_hf) {
+        printf("Port %u modified RSS hash function based on hardware support,"
+            "requested:%#"PRIx64" configured:%#"PRIx64"\n",
+            port,
+            rx_port_conf.rx_adv_conf.rss_conf.rss_hf,
+            local_port_conf.rx_adv_conf.rss_conf.rss_hf);
+    }
+
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
                               NB_RX_QUEUES, /* nb rx queue */
                               0, /* nb tx queue */
-                              &ethconf) < 0) {
+                              &local_port_conf) < 0) {
         fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        return (-1);
+    }
+
+    uint16_t nb_txd = 0;
+    ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
+
+    if (ret < 0) {
+        fprintf(stderr, "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d\n", ret, port);
         return (-1);
     }
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */
     for (int q = 0; q < NB_RX_QUEUES; q++) {
         struct rte_eth_rxconf rxq_conf;
+
+        ret = rte_eth_dev_info_get(port, &dev_info);
+        if (ret != 0) {
+            fprintf(stderr, "Error during getting device (port %u) info: %s\n", port, strerror(-ret));
+            return (-1);
+        }
+
+        rxq_conf = dev_info.default_rxconf;
+        rxq_conf.offloads = rx_port_conf.rxmode.offloads;
 
         cpus->q[q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q,
 							  512, cpus->numacore, 256);
@@ -235,10 +293,7 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
             return (-1);
         }
 
-        rte_eth_dev_info_get(port, &dev_info);
-        rxq_conf = dev_info.default_rxconf;
-
-        ret = rte_eth_rx_queue_setup(port, q, 256, cpus->numacore,
+        ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
 						             &rxq_conf, cpus->q[q].rx_mp);
 
         if (ret < 0) {
@@ -253,15 +308,15 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         // rte_eth_dev_set_rx_queue_stats_mapping(pid, q, lid);
     }
 
-    ret = rte_eth_promiscuous_enable(port);
-    if (ret) {
-        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
-        return (-1);
-    }
-
     /* Start the ethernet device */
     if (rte_eth_dev_start(port) < 0) {
         fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
+        return (-1);
+    }
+
+    ret = rte_eth_promiscuous_enable(port);
+    if (ret) {
+        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
         return (-1);
     }
 
@@ -555,9 +610,9 @@ int remote_thread(void* thread_ctx)
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"\n", 
                     stats.ipackets - old_stats.ipackets,
                     stats.ibytes - old_stats.ibytes);
-            //printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
-            // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
-            // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
+            printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
+            printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
+            printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n", 
                     stats.opackets - old_stats.opackets, 
                     stats.obytes - old_stats.obytes);

@@ -181,9 +181,32 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     return (0);
 }
 
-int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
+static struct rte_mempool *
+dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
+			uint32_t nb_mbufs, int socket_id, int cache_size){
+	struct rte_mempool *mp;
+	char name[RTE_MEMZONE_NAMESIZE];
+	uint64_t sz;
+
+	snprintf(name, sizeof(name), "%-12s%u:%u", type, pid, queue_id);
+
+	sz = nb_mbufs * (DEFAULT_MBUF_SIZE + sizeof(struct rte_mbuf));
+	sz = RTE_ALIGN_CEIL(sz + sizeof(struct rte_mempool), 1024);
+
+	/* create the mbuf pool */
+	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, DEFAULT_MBUF_SIZE, socket_id);
+	if (mp == NULL)
+		fprintf(stderr,
+			"Cannot create mbuf pool (%s) port %d, queue %d, nb_mbufs %d, socket_id %d: %s",
+			name, pid, queue_id, nb_mbufs, socket_id, rte_strerror(rte_errno));
+
+	return mp;
+}
+
+int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 {
     int                 ret, i;
+    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
 #ifdef DEBUG
     struct rte_eth_link eth_link;
 #endif /* DEBUG */
@@ -191,10 +214,54 @@ int dpdk_init_read_port(const struct cpus_bindings* cpus, int port)
     if (!cpus)
         return (EINVAL);
 
-    ret = rte_eth_promiscuous_enable(port);
+    /* Configure for each port (ethernet device), the number of rx queues & tx queues */
+    if (rte_eth_dev_configure(port,
+                              NB_RX_QUEUES, /* nb rx queue */
+                              0, /* nb tx queue */
+                              &ethconf) < 0) {
+        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        return (-1);
+    }
 
+    /* Then allocate and set up the transmit queues for this Ethernet device  */
+    for (int q = 0; q < NB_RX_QUEUES; q++) {
+        struct rte_eth_rxconf rxq_conf;
+
+        cpus->q[q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q,
+							  512, cpus->numacore, 256);
+
+        if (cpus->q[q].rx_mp == NULL) {
+            fprintf(stderr, "Cannot init port %d for Default RX mbufs\n", port);
+            return (-1);
+        }
+
+        rte_eth_dev_info_get(port, &dev_info);
+        rxq_conf = dev_info.default_rxconf;
+
+        ret = rte_eth_rx_queue_setup(port, q, 256, cpus->numacore,
+						             &rxq_conf, cpus->q[q].rx_mp);
+
+        if (ret < 0) {
+            fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
+                    i, strerror(-ret));
+            return (ret);
+        }
+
+        // lid = get_port_lid(pktgen.l2p, pid, q);
+		// 	if (pktgen.verbose)
+		// 		pktgen_log_info("      Set RX queue stats mapping pid %d, q %d, lcore %d\n", pid, q, lid);
+        // rte_eth_dev_set_rx_queue_stats_mapping(pid, q, lid);
+    }
+
+    ret = rte_eth_promiscuous_enable(port);
     if (ret) {
         fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        return (-1);
+    }
+
+    /* Start the ethernet device */
+    if (rte_eth_dev_start(port) < 0) {
+        fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
         return (-1);
     }
 

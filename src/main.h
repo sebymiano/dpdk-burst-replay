@@ -10,6 +10,7 @@
 #include <semaphore.h>
 #include <stdbool.h>
 
+#define DEBUG           1
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
@@ -17,6 +18,10 @@
 #define NB_RX_QUEUES    64 /* ^2 needed to make fast modulos % */
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
+
+#define PG_JUMBO_FRAME_LEN (9600 + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN)
+#define PG_ETHER_MAX_JUMBO_FRAME_LEN   PG_JUMBO_FRAME_LEN
+#define DEFAULT_MBUF_SIZE	(PG_ETHER_MAX_JUMBO_FRAME_LEN + RTE_PKTMBUF_HEADROOM)
 
 #define TX_PTHRESH 36 // Default value of TX prefetch threshold register.
 #define TX_HTHRESH 0  // Default value of TX host threshold register.
@@ -69,6 +74,9 @@ struct                  cpus_bindings {
     char*               prefix;
     char*               suffix;
     uint64_t            coremask;
+    struct q_info {
+        struct rte_mempool *rx_mp;       /**< Pool pointer for port RX mbufs */
+    } q[NB_RX_QUEUES]
 };
 
 /* struct corresponding to a cache for one NIC port */

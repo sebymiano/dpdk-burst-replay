@@ -42,25 +42,6 @@ static struct rte_eth_conf ethconf = {
     },
 };
 
-static struct rte_eth_conf rx_port_conf = {
-	.rxmode = {
-		.mq_mode	= ETH_MQ_RX_RSS,
-		.max_rx_pkt_len = RTE_ETHER_MAX_LEN,
-		.split_hdr_size = 0,
-		.offloads = DEV_RX_OFFLOAD_CHECKSUM,
-	},
-	.rx_adv_conf = {
-		.rss_conf = {
-			.rss_key = NULL,
-			.rss_hf = ETH_RSS_IP | ETH_RSS_UDP |
-				ETH_RSS_TCP | ETH_RSS_SCTP,
-		},
-	},
-	.txmode = {
-		.mq_mode = ETH_MQ_TX_NONE,
-	},
-};
-
 static struct rte_eth_txconf const txconf = {
     .tx_thresh = {
         .pthresh = TX_PTHRESH,
@@ -227,37 +208,6 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 	return mp;
 }
 
-int dpdk_init_rx_conf(struct cpus_bindings* cpus, int port, struct rte_eth_conf *local_conf) {
-    int                 ret, i;
-    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
-
-    if (!cpus)
-        return (EINVAL);
-
-    ret = rte_eth_dev_info_get(port, &dev_info);
-    if (ret != 0)
-        rte_exit(EXIT_FAILURE,
-            "Error during getting device (port %u) info: %s\n",
-            port, strerror(-ret));
-
-    if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE)
-        local_conf->txmode.offloads |=
-            DEV_TX_OFFLOAD_MBUF_FAST_FREE;
-
-    local_conf->rx_adv_conf.rss_conf.rss_hf &=
-        dev_info.flow_type_rss_offloads;
-    if (local_conf->rx_adv_conf.rss_conf.rss_hf !=
-            rx_port_conf.rx_adv_conf.rss_conf.rss_hf) {
-        printf("Port %u modified RSS hash function based on hardware support,"
-            "requested:%#"PRIx64" configured:%#"PRIx64"\n",
-            port,
-            rx_port_conf.rx_adv_conf.rss_conf.rss_hf,
-            local_conf->rx_adv_conf.rss_conf.rss_hf);
-    }
-
-    return 0;
-}
-
 int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
     int                 ret, i;
     struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
@@ -269,20 +219,6 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
         fprintf(stderr, "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d\n", ret, port);
         return (-1);
     }
-
-    // if (cpus->pktmbuf_pool == NULL) {
-    //     cpus->pktmbuf_pool = rte_pktmbuf_pool_create("Default RX", 8192,
-	// 				MEMPOOL_CACHE_SIZE, 0,
-	// 				RTE_MBUF_DEFAULT_BUF_SIZE,
-	// 				cpus->numacore);
-    // }
-
-    // if (cpus->pktmbuf_pool == NULL) {
-    //     fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
-    //     return (-1);
-    // } else {
-    //     printf("Allocated mbuf pool on socket %d\n", cpus->numacore);
-    // }
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */
     for (int q = 0; q < NB_RX_QUEUES; q++) {
@@ -302,8 +238,6 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
         }
 
         rxq_conf = dev_info.default_rxconf;
-        rxq_conf.offloads = rx_port_conf.rxmode.offloads;
-
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
 						             &rxq_conf, cpus->q[port][q].rx_mp);
 
@@ -325,8 +259,6 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 #ifdef DEBUG
     struct rte_eth_link eth_link;
 #endif /* DEBUG */
-
-    // dpdk_init_rx_conf(cpus, port, &local_port_conf);
 
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
@@ -645,9 +577,9 @@ int remote_thread(void* thread_ctx)
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"\n", 
                     stats.ipackets - old_stats.ipackets,
                     stats.ibytes - old_stats.ibytes);
-            printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
-            printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
-            printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
+            // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
+            // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
+            // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n", 
                     stats.opackets - old_stats.opackets, 
                     stats.obytes - old_stats.obytes);

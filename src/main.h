@@ -19,6 +19,7 @@
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
 #define MEMPOOL_CACHE_SIZE 256
+#define BURST_SIZE 32
 
 #define RTE_TEST_RX_DESC_DEFAULT 1024
 
@@ -75,6 +76,7 @@ struct                  cpus_bindings {
     unsigned int        nb_available_cpus;
     unsigned int        nb_needed_pcap_cpus;
     unsigned int        nb_needed_stats_cpus;
+    unsigned int        nb_needed_recv_cpus;
     unsigned int*       cpus_to_use;
     char*               prefix;
     char*               suffix;
@@ -102,6 +104,12 @@ struct                  dpdk_ctx {
     struct pcap_cache*  pcap_caches; /* tab of caches, one per NIC port */
 };
 
+enum thread_type {
+    PCAP_THREAD = 0,
+    STATS_THREAD,
+    RECV_THREAD
+};
+
 /* struct to store threads context */
 struct                  thread_ctx {
     sem_t*              sem;
@@ -120,6 +128,7 @@ struct                  thread_ctx {
     FILE*               csv_ptr;
     int                 slow_mode;
     int                 timeout;
+    enum thread_type    t_type;
 };
 
 struct                  pcap_ctx {

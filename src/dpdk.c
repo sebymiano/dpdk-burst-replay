@@ -299,14 +299,6 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         rxq_conf = dev_info.default_rxconf;
         rxq_conf.offloads = rx_port_conf.rxmode.offloads;
 
-        // cpus->q[q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q,
-		// 					  512, cpus->numacore, 256);
-
-        // if (cpus->q[q].rx_mp == NULL) {
-        //     fprintf(stderr, "Cannot init port %d for Default RX mbufs\n", port);
-        //     return (-1);
-        // }
-
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
 						             &rxq_conf, cpus->pktmbuf_pool);
 
@@ -315,11 +307,6 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
                     i, strerror(-ret));
             return (ret);
         }
-
-        // lid = get_port_lid(pktgen.l2p, pid, q);
-		// 	if (pktgen.verbose)
-		// 		pktgen_log_info("      Set RX queue stats mapping pid %d, q %d, lcore %d\n", pid, q, lid);
-        // rte_eth_dev_set_rx_queue_stats_mapping(pid, q, lid);
     }
 
     /* Start the ethernet device */
@@ -390,8 +377,9 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
     }
 
     /* check that dpdk see enough usable cores */
-    if (rte_lcore_count() != cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + 1) {
+    if (rte_lcore_count() != cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) {
         printf("%s error: not enough rte_lcore founds\n", __FUNCTION__);
+        printf("Required: %d, obtained: %d\n", cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, rte_lcore_count());
         return (1);
     }
 
@@ -591,7 +579,7 @@ int remote_thread(void* thread_ctx)
                 // usleep(1.5*1000000);
             }
         }
-    } else {
+    } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
 
@@ -635,6 +623,24 @@ int remote_thread(void* thread_ctx)
             memcpy(&old_stats, &stats, sizeof(stats));
             sleep(1);
             
+            sem_getvalue(ctx->sem_stop, &sem_value);
+            if (sem_value > 0) {
+                break;
+            }
+        }
+    } else {
+        // We are in the receive thread
+        uint16_t nb_rx;
+        for (;;) {
+            struct rte_mbuf *bufs[BURST_SIZE];
+            for (int q = 0; q < NB_RX_QUEUES; q++) {
+                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, BURST_SIZE);
+                if (unlikely(nb_rx == 0))
+                    continue;
+
+                rte_pktmbuf_free_bulk(bufs, nb_rx);
+            }
+
             sem_getvalue(ctx->sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
@@ -732,10 +738,11 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
+        ctx[i].t_type = PCAP_THREAD;
     }
 
-    /* Here I set the context for the stats threads */
-    for (i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus; i++) {
+    /* Here I set the context for the recv thread */
+    for (i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++) {
         ctx[i].sem = &sem;
         ctx[i].sem_stop = &sem_stop;
         ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus;
@@ -746,8 +753,24 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
+        ctx[i].t_type = RECV_THREAD;
+    }
 
-        int port_no = i - cpus->nb_needed_pcap_cpus;
+    /* Here I set the context for the stats threads */
+    for (i = cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus + cpus->nb_needed_stats_cpus; i++) {
+        ctx[i].sem = &sem;
+        ctx[i].sem_stop = &sem_stop;
+        ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
+        ctx[i].tx_port_id = -1;
+        ctx[i].nbruns = opts->nbruns;
+        ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
+        ctx[i].nb_pkt = pcap->nb_pkts;
+        ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].slow_mode = opts->slow_mode;
+        ctx[i].timeout = opts->timeout;
+        ctx[i].t_type = STATS_THREAD;
+
+        int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
         /* Initialize CSV files if the corresponding flag is set */
         if (opts->write_csv) {
             char file_name[30];
@@ -769,7 +792,7 @@ int start_all_threads(const struct cmd_opts* opts,
     }
 
     /* launch threads, which will wait on the semaphore to start */
-    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         printf("Start thread: %u on core %u\n", i, cpus->cpus_to_use[i + 1]);
         ret = rte_eal_remote_launch(remote_thread, &(ctx[i]),
                                     cpus->cpus_to_use[i + 1]); /* skip fake master core */
@@ -792,7 +815,7 @@ int start_all_threads(const struct cmd_opts* opts,
         sleep (1);
     }
 
-    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         ret = sem_post(&sem);
         if (ret) {
             fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
@@ -805,7 +828,7 @@ int start_all_threads(const struct cmd_opts* opts,
     if (opts->timeout > 0) {
         sleep(opts->timeout);
 
-        for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+        for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
             ret = sem_post(&sem_stop);
             if (ret) {
                 fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
@@ -818,7 +841,7 @@ int start_all_threads(const struct cmd_opts* opts,
     /* wait all threads */
     rte_eal_mp_wait_lcore();
 
-    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus); i++) {
+    for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         if (opts->write_csv && ctx[i].csv_ptr != NULL) {
             fclose(ctx[i].csv_ptr);
         }

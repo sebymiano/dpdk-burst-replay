@@ -129,6 +129,7 @@ struct                  thread_ctx {
     int                 slow_mode;
     int                 timeout;
     enum thread_type    t_type;
+    unsigned int        thread_id;
 };
 
 struct                  pcap_ctx {

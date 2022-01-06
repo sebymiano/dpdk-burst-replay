@@ -495,6 +495,8 @@ int remote_thread(void* thread_ctx)
     /* retrieve thread context */
     ctx = (struct thread_ctx*)thread_ctx;
 
+    thread_id = ctx->thread_id;
+
     /* init semaphore to wait to start the burst */
     ret = sem_wait(ctx->sem);
     if (ret) {
@@ -514,10 +516,8 @@ int remote_thread(void* thread_ctx)
     printf("RX port id: %d, TX port id: %d\n", ctx->rx_port_id, ctx->tx_port_id);
     if (ctx->rx_port_id >= 0) {
         is_stats_thread = true;
-        thread_id = ctx->rx_port_id;
     } else {
         is_stats_thread = false;
-        thread_id = ctx->tx_port_id;
     }
 
     #ifdef DEBUG
@@ -723,10 +723,10 @@ int start_all_threads(const struct cmd_opts* opts,
     }
 
     /* create threads contexts */
-    ctx = malloc(sizeof(*ctx) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus));
+    ctx = malloc(sizeof(*ctx) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus));
     if (!ctx)
         return (ENOMEM);
-    bzero(ctx, sizeof(*ctx) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus));
+    bzero(ctx, sizeof(*ctx) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus));
     for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
         ctx[i].sem = &sem;
         ctx[i].sem_stop = &sem_stop;
@@ -738,6 +738,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
+        ctx[i].thread_id = i;
         ctx[i].t_type = PCAP_THREAD;
     }
 
@@ -753,6 +754,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
+        ctx[i].thread_id = i;
         ctx[i].t_type = RECV_THREAD;
     }
 
@@ -768,6 +770,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
+        ctx[i].thread_id = i;
         ctx[i].t_type = STATS_THREAD;
 
         int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;

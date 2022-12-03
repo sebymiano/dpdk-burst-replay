@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
+#include <linux/limits.h>
 
 /* DPDK includes */
 #include <rte_version.h>
@@ -741,11 +742,11 @@ int start_all_threads(const struct cmd_opts* opts,
         int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
         /* Initialize CSV files if the corresponding flag is set */
         if (opts->write_csv) {
-            char file_name[30];
+            char file_name[PATH_MAX];
             if (opts->nb_stats_file_name > 0) {
-                strncpy(file_name, opts->stats_name[port_no], 30);
+                strncpy(file_name, opts->stats_name[port_no], PATH_MAX);
             } else {
-                snprintf(file_name, 30, "results_port_%u.csv", port_no);
+                snprintf(file_name, PATH_MAX, "results_port_%u.csv", port_no);
             }
 
             FILE *ptr = fopen(file_name, "w");

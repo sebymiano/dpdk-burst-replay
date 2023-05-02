@@ -20,22 +20,18 @@
 static struct rte_eth_conf ethconf = {
 #ifdef RTE_VER_YEAR
     /* version  > to 2.2.0, last one with old major.minor.patch system */
-    .link_speeds = ETH_LINK_SPEED_AUTONEG,
+    .link_speeds = RTE_ETH_LINK_SPEED_AUTONEG,
 #else
     /* compatibility with older version */
     .link_speed = 0,        // autonegociated speed link
     .link_duplex = 0,       // autonegociated link mode
 #endif
     .rxmode = {
-        .mq_mode = ETH_MQ_RX_NONE,
+        .mq_mode = RTE_ETH_MQ_RX_NONE,
     },
 
     .txmode = {
-        .mq_mode = ETH_MQ_TX_NONE,  // Multi queue packet routing mode.
-    },
-
-    .fdir_conf = {
-        .mode = RTE_FDIR_MODE_NONE, // Disable flow director support
+        .mq_mode = RTE_ETH_MQ_TX_NONE,  // Multi queue packet routing mode.
     },
 
     .intr_conf = {
@@ -178,7 +174,7 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     if (eth_link.link_status) {
         printf(" Link up - speed %u Mbps - %s\n",
                eth_link.link_speed,
-               (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
+               (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
                "full-duplex" : "half-duplex\n");
     } else {
         printf("Link down\n");
@@ -293,7 +289,7 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
     if (eth_link.link_status) {
         printf(" Link up - speed %u Mbps - %s\n",
                eth_link.link_speed,
-               (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
+               (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
                "full-duplex" : "half-duplex\n");
     } else {
         printf("Link down\n");

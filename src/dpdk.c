@@ -544,7 +544,7 @@ int remote_thread(void* thread_ctx)
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
-
+        double gbps = 0.0;
         bzero(&old_stats, sizeof(old_stats));
         run_cpt = 0;
         // If we have the CSV file flag enable, let's write the CSV header
@@ -571,15 +571,20 @@ int remote_thread(void* thread_ctx)
                                       stats.opackets - old_stats.opackets,
                                       stats.obytes - old_stats.obytes);
             }
-            printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"\n", 
+            gbps = ((stats.ibytes - old_stats.ibytes) * 8)/1000000000;
+            // Print stats with 2 decimal places
+            printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
                     stats.ipackets - old_stats.ipackets,
-                    stats.ibytes - old_stats.ibytes);
+                    stats.ibytes - old_stats.ibytes,
+                    gbps);
             // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
             // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
             // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n", 
+            gbps = ((stats.obytes - old_stats.obytes) * 8)/1000000000;
+            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n  RX-Gbps: %.2f\n", 
                     stats.opackets - old_stats.opackets, 
-                    stats.obytes - old_stats.obytes);
+                    stats.obytes - old_stats.obytes,
+                    gbps);
             printf("\n");
 
             memcpy(&old_stats, &stats, sizeof(stats));

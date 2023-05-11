@@ -20,19 +20,31 @@
 
 static struct rte_eth_conf ethconf = {
 #ifdef RTE_VER_YEAR
+    #if API_AT_LEAST_AS_RECENT_AS(22, 03)
     /* version  > to 2.2.0, last one with old major.minor.patch system */
     .link_speeds = RTE_ETH_LINK_SPEED_AUTONEG,
+    #else
+    .link_speeds = ETH_LINK_SPEED_AUTONEG,
+    #endif
 #else
     /* compatibility with older version */
     .link_speed = 0,        // autonegociated speed link
     .link_duplex = 0,       // autonegociated link mode
 #endif
     .rxmode = {
+        #if API_AT_LEAST_AS_RECENT_AS(22, 03)
         .mq_mode = RTE_ETH_MQ_RX_NONE,
+        #else
+        .mq_mode = ETH_MQ_RX_NONE,
+        #endif
     },
 
     .txmode = {
+        #if API_AT_LEAST_AS_RECENT_AS(22, 03)
         .mq_mode = RTE_ETH_MQ_TX_NONE,  // Multi queue packet routing mode.
+        #else
+        .mq_mode = ETH_MQ_TX_NONE,      // Multi queue packet routing mode.
+        #endif
     },
 
     .intr_conf = {
@@ -173,10 +185,17 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     /* Get link status and display it. */
     rte_eth_link_get(port, &eth_link);
     if (eth_link.link_status) {
+    #if API_AT_LEAST_AS_RECENT_AS(22, 03)
         printf(" Link up - speed %u Mbps - %s\n",
                eth_link.link_speed,
                (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
                "full-duplex" : "half-duplex\n");
+    #else 
+        printf(" Link up - speed %u Mbps - %s\n",
+               eth_link.link_speed,
+               (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
+               "full-duplex" : "half-duplex\n");
+    #endif
     } else {
         printf("Link down\n");
     }
@@ -251,8 +270,7 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
 
 int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 {
-    int                 ret, i;
-    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
+    int                 ret;
     struct rte_eth_conf local_port_conf = ethconf;
 #ifdef DEBUG
     struct rte_eth_link eth_link;
@@ -288,10 +306,17 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
     /* Get link status and display it. */
     rte_eth_link_get(port, &eth_link);
     if (eth_link.link_status) {
+    #if API_AT_LEAST_AS_RECENT_AS(22, 03)
         printf(" Link up - speed %u Mbps - %s\n",
                eth_link.link_speed,
                (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
                "full-duplex" : "half-duplex\n");
+    #else
+        printf(" Link up - speed %u Mbps - %s\n",
+               eth_link.link_speed,
+               (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
+               "full-duplex" : "half-duplex\n");
+    #endif /* API_AT_LEAST_AS_RECENT_AS(22, 03) */
     } else {
         printf("Link down\n");
     }
@@ -408,7 +433,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
     }
 
     // Now if I have a device to read packets from I need to setup the corresponding port
-    for (i = cpus->nb_needed_pcap_cpus; (unsigned)i < (opts->nb_total_ports); i++) {
+    for (i = cpus->nb_needed_pcap_cpus; (unsigned int)i < (opts->nb_total_ports); i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {

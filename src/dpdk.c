@@ -270,7 +270,8 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
 
 int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 {
-    int                 ret;
+    int                 ret, i;
+    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
     struct rte_eth_conf local_port_conf = ethconf;
 #ifdef DEBUG
     struct rte_eth_link eth_link;
@@ -433,7 +434,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
     }
 
     // Now if I have a device to read packets from I need to setup the corresponding port
-    for (i = cpus->nb_needed_pcap_cpus; (unsigned int)i < (opts->nb_total_ports); i++) {
+    for (i = cpus->nb_needed_pcap_cpus; (unsigned)i < (opts->nb_total_ports); i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {

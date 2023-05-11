@@ -19,3 +19,4 @@ stamp-h1
 src/dpdk-replay
 .vscode/*
 compile_commands.json
+src/*.csv

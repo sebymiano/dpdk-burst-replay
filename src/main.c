@@ -331,7 +331,6 @@ int main(const int ac, char** av)
     struct dpdk_ctx         dpdk;
     struct pcap_ctx         pcap;
     int                     ret;
-    struct thread_ctx*      stats_ctx = NULL;
 
     /* set default opts */
     bzero(&cpus, sizeof(cpus));

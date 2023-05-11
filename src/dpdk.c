@@ -14,6 +14,7 @@
 #include <rte_ethdev.h>
 #include <rte_log.h>
 #include <rte_errno.h>
+#include <rte_time.h>
 
 #include "main.h"
 
@@ -544,6 +545,9 @@ int remote_thread(void* thread_ctx)
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
+        uint64_t   current_time;
+        uint64_t   old_time = rte_rdtsc_precise();
+        uint64_t   diff_time;
         double gbps = 0.0;
         bzero(&old_stats, sizeof(old_stats));
         run_cpt = 0;
@@ -561,33 +565,36 @@ int remote_thread(void* thread_ctx)
                 sleep(1);
                 continue;
             }
+            current_time = rte_rdtsc_precise();
+            diff_time = current_time - old_time;
+            old_time = current_time;
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            if (ctx->csv_ptr) {
-                fprintf(ctx->csv_ptr, "%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
-                                      ctx->rx_port_id, run_cpt,
-                                      stats.ipackets - old_stats.ipackets,
-                                      stats.ibytes - old_stats.ibytes,
-                                      stats.opackets - old_stats.opackets,
-                                      stats.obytes - old_stats.obytes);
-            }
-            gbps = ((stats.ibytes - old_stats.ibytes) * 8)/1000000000;
+            gbps = (((stats.ibytes - old_stats.ibytes)/diff_time) * 8)/1000000000;
             // Print stats with 2 decimal places
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
-                    stats.ipackets - old_stats.ipackets,
-                    stats.ibytes - old_stats.ibytes,
+                    (stats.ipackets - old_stats.ipackets)/diff_time,
+                    (stats.ibytes - old_stats.ibytes)/diff_time,
                     gbps);
             // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
             // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
             // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            gbps = ((stats.obytes - old_stats.obytes) * 8)/1000000000;
-            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n  RX-Gbps: %.2f\n", 
-                    stats.opackets - old_stats.opackets, 
-                    stats.obytes - old_stats.obytes,
+            gbps = (((stats.obytes - old_stats.obytes)/diff_time) * 8)/1000000000;
+            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n  TX-Gbps: %.2f\n", 
+                    (stats.opackets - old_stats.opackets)/diff_time, 
+                    (stats.obytes - old_stats.obytes)/diff_time,
                     gbps);
             printf("\n");
 
             memcpy(&old_stats, &stats, sizeof(stats));
+            if (ctx->csv_ptr) {
+                fprintf(ctx->csv_ptr, "%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
+                                      ctx->rx_port_id, run_cpt,
+                                      (stats.ipackets - old_stats.ipackets)/diff_time,
+                                      (stats.ibytes - old_stats.ibytes)/diff_time,
+                                      (stats.opackets - old_stats.opackets)/diff_time,
+                                      (stats.obytes - old_stats.obytes)/diff_time);
+            }
             sleep(1);
             
             sem_getvalue(ctx->sem_stop, &sem_value);

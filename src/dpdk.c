@@ -18,6 +18,8 @@
 
 #include "main.h"
 
+#define IFG_PLUS_PREAMBLE 20
+
 static struct rte_eth_conf ethconf = {
 #ifdef RTE_VER_YEAR
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
@@ -466,6 +468,15 @@ double timespec_diff_to_double(const struct timespec start, const struct timespe
     return (duration);
 }
 
+static uint64_t create_timestamp(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return rte_timespec_to_ns(&now);
+}
+
+
 int remote_thread(void* thread_ctx)
 {
     struct thread_ctx*  ctx;
@@ -571,9 +582,22 @@ int remote_thread(void* thread_ctx)
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
-        uint64_t   current_time;
-        uint64_t   old_time = rte_rdtsc_precise();
-        uint64_t   diff_time;
+        uint64_t   current_time_ns;
+        uint64_t   old_time_ns = create_timestamp();
+        uint64_t   diff_time_ns;
+
+        uint64_t   rx_pkt_delta = 0;
+        uint64_t   rx_bytes_delta = 0;
+        uint64_t   rx_bit_delta = 0;
+        uint64_t   rx_pkt_rate = 0;
+        uint64_t   rx_bytes_rate = 0;
+
+        uint64_t   tx_pkt_delta = 0;
+        uint64_t   tx_bytes_delta = 0;
+        uint64_t   tx_pkt_rate = 0;
+        uint64_t   tx_bytes_rate = 0;
+        uint64_t   tx_bit_delta = 0;
+
         double gbps = 0.0;
         bzero(&old_stats, sizeof(old_stats));
         run_cpt = 0;
@@ -581,7 +605,6 @@ int remote_thread(void* thread_ctx)
         if (ctx->csv_ptr) {
             fprintf(ctx->csv_ptr, "#Port,Time,RX-packets,RX-bytes,TX-packets,TX-bytes\n");
         }
-
 
         while (true) {
             run_cpt++;
@@ -591,24 +614,40 @@ int remote_thread(void* thread_ctx)
                 sleep(1);
                 continue;
             }
-            current_time = rte_rdtsc_precise();
-            diff_time = current_time - old_time;
-            old_time = current_time;
+            current_time_ns = create_timestamp();
+            diff_time_ns = (current_time_ns - old_time_ns);
+            old_time_ns = current_time_ns;
+
+            // printf("Diff time (ns): %lu\n", diff_time_ns);
+
+            rx_pkt_delta = stats.ipackets - old_stats.ipackets;
+            rx_pkt_rate = (rx_pkt_delta * 1000000000) / diff_time_ns;
+
+            rx_bytes_delta = stats.ibytes - old_stats.ibytes;
+            rx_bit_delta = (rx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
+            rx_bytes_rate = (rx_bytes_delta * 1000000000) / diff_time_ns;
+
+            tx_pkt_delta = stats.opackets - old_stats.opackets;
+            tx_pkt_rate = (tx_pkt_delta * 1000000000) / diff_time_ns;
+
+            tx_bytes_delta = stats.obytes - old_stats.obytes;
+            tx_bit_delta = (tx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
+            tx_bytes_rate = (tx_bytes_delta * 1000000000) / diff_time_ns;
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            gbps = (((stats.ibytes - old_stats.ibytes)/diff_time) * 8)/1000000000;
+            gbps = (double)rx_bit_delta/diff_time_ns;
             // Print stats with 2 decimal places
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
-                    (stats.ipackets - old_stats.ipackets)/diff_time,
-                    (stats.ibytes - old_stats.ibytes)/diff_time,
+                    rx_pkt_rate,
+                    rx_bytes_rate,
                     gbps);
             // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
             // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
             // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            gbps = (((stats.obytes - old_stats.obytes)/diff_time) * 8)/1000000000;
-            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"\n  TX-Gbps: %.2f\n", 
-                    (stats.opackets - old_stats.opackets)/diff_time, 
-                    (stats.obytes - old_stats.obytes)/diff_time,
+            gbps = (double)tx_bit_delta/diff_time_ns;
+            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f\n", 
+                    tx_pkt_rate, 
+                    tx_bytes_rate,
                     gbps);
             printf("\n");
 
@@ -616,10 +655,8 @@ int remote_thread(void* thread_ctx)
             if (ctx->csv_ptr) {
                 fprintf(ctx->csv_ptr, "%u,%u,%"PRIu64",%"PRIu64",%"PRIu64",%"PRIu64"\n", 
                                       ctx->rx_port_id, run_cpt,
-                                      (stats.ipackets - old_stats.ipackets)/diff_time,
-                                      (stats.ibytes - old_stats.ibytes)/diff_time,
-                                      (stats.opackets - old_stats.opackets)/diff_time,
-                                      (stats.obytes - old_stats.obytes)/diff_time);
+                                      rx_pkt_rate, rx_bytes_rate,
+                                      tx_pkt_rate, tx_bytes_rate);
             }
             sleep(1);
             

@@ -15,7 +15,7 @@
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
 #define NB_TX_QUEUES    64 /* ^2 needed to make fast modulos % */
-#define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
+#define NB_RX_QUEUES    12 /* ^2 needed to make fast modulos % */
 #define NB_MAX_PORTS    5
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)

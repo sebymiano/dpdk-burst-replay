@@ -67,9 +67,9 @@ static uint64_t generate_mask(const struct cpus_bindings* cpus, uint8_t number)
 
     /* generate coremask */
     for (coremask = 0, i = 0; i < number; i++)
-        coremask |= (uint64_t)(1 << cpus->cpus_to_use[i]);
+        coremask |= (uint64_t)(1ULL << cpus->cpus_to_use[i]);
 #ifdef DEBUG
-    printf("%s for %u cores -> 0x%lx\n", __FUNCTION__, number, coremask);
+    printf("%s for %u cores -> 0x%016lX\n", __FUNCTION__, number, coremask);
 #endif /* DEBUG */
     return (coremask);
 }

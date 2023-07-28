@@ -84,7 +84,7 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
 
     int current_pid = getpid();
     /* Set EAL init parameters */
-    snprintf(buf_coremask, 20, "0x%lx", cpus->coremask);
+    snprintf(buf_coremask, 20, "0x%016lX", cpus->coremask);
     snprintf(file_prefix, 20, "dpdkreplay_%d", current_pid);
     char *pre_eal_args[] = {
         "./dpdk-replay",

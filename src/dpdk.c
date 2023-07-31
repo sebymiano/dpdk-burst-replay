@@ -132,7 +132,73 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
     return (eal_args);
 }
 
-int dpdk_init_port(const struct cpus_bindings* cpus, int port)
+static struct rte_mempool *
+dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
+			uint32_t nb_mbufs, int socket_id, int cache_size){
+	struct rte_mempool *mp;
+	char name[RTE_MEMZONE_NAMESIZE];
+	uint64_t sz;
+
+	snprintf(name, sizeof(name), "%-12s%u:%u", type, pid, queue_id);
+
+	sz = nb_mbufs * (DEFAULT_MBUF_SIZE + sizeof(struct rte_mbuf));
+	sz = RTE_ALIGN_CEIL(sz + sizeof(struct rte_mempool), 1024);
+
+	/* create the mbuf pool */
+	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, DEFAULT_MBUF_SIZE, socket_id);
+	if (mp == NULL)
+		fprintf(stderr,
+			"Cannot create mbuf pool (%s) port %d, queue %d, nb_mbufs %d, socket_id %d: %s",
+			name, pid, queue_id, nb_mbufs, socket_id, rte_strerror(rte_errno));
+
+	return mp;
+}
+
+
+int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
+    int                 ret, i;
+    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
+
+    uint16_t nb_txd = 0;
+    ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
+
+    if (ret < 0) {
+        fprintf(stderr, "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d\n", ret, port);
+        return (-1);
+    }
+
+    /* Then allocate and set up the transmit queues for this Ethernet device  */
+    for (int q = 0; q < NB_RX_QUEUES; q++) {
+        struct rte_eth_rxconf rxq_conf;
+
+        cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, 8192, 
+                                    cpus->numacore, MEMPOOL_CACHE_SIZE);
+        if (cpus->q[port][q].rx_mp == NULL) {
+            fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
+            return (-1);
+        }
+
+        ret = rte_eth_dev_info_get(port, &dev_info);
+        if (ret != 0) {
+            fprintf(stderr, "Error during getting device (port %u) info: %s\n", port, strerror(-ret));
+            return (-1);
+        }
+
+        rxq_conf = dev_info.default_rxconf;
+        ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
+						             &rxq_conf, cpus->q[port][q].rx_mp);
+
+        if (ret < 0) {
+            fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
+                    i, strerror(-ret));
+            return (ret);
+        }
+    }
+
+    return 0;
+}
+
+int dpdk_init_port(struct cpus_bindings* cpus, int port)
 {
     int                 ret, i;
 #ifdef DEBUG
@@ -205,70 +271,6 @@ int dpdk_init_port(const struct cpus_bindings* cpus, int port)
     return (0);
 }
 
-static struct rte_mempool *
-dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
-			uint32_t nb_mbufs, int socket_id, int cache_size){
-	struct rte_mempool *mp;
-	char name[RTE_MEMZONE_NAMESIZE];
-	uint64_t sz;
-
-	snprintf(name, sizeof(name), "%-12s%u:%u", type, pid, queue_id);
-
-	sz = nb_mbufs * (DEFAULT_MBUF_SIZE + sizeof(struct rte_mbuf));
-	sz = RTE_ALIGN_CEIL(sz + sizeof(struct rte_mempool), 1024);
-
-	/* create the mbuf pool */
-	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, DEFAULT_MBUF_SIZE, socket_id);
-	if (mp == NULL)
-		fprintf(stderr,
-			"Cannot create mbuf pool (%s) port %d, queue %d, nb_mbufs %d, socket_id %d: %s",
-			name, pid, queue_id, nb_mbufs, socket_id, rte_strerror(rte_errno));
-
-	return mp;
-}
-
-int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
-    int                 ret, i;
-    struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
-
-    uint16_t nb_txd = 0;
-    ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
-
-    if (ret < 0) {
-        fprintf(stderr, "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d\n", ret, port);
-        return (-1);
-    }
-
-    /* Then allocate and set up the transmit queues for this Ethernet device  */
-    for (int q = 0; q < NB_RX_QUEUES; q++) {
-        struct rte_eth_rxconf rxq_conf;
-
-        cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, 8192, 
-                                    cpus->numacore, MEMPOOL_CACHE_SIZE);
-        if (cpus->q[port][q].rx_mp == NULL) {
-            fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
-            return (-1);
-        }
-
-        ret = rte_eth_dev_info_get(port, &dev_info);
-        if (ret != 0) {
-            fprintf(stderr, "Error during getting device (port %u) info: %s\n", port, strerror(-ret));
-            return (-1);
-        }
-
-        rxq_conf = dev_info.default_rxconf;
-        ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
-						             &rxq_conf, cpus->q[port][q].rx_mp);
-
-        if (ret < 0) {
-            fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
-                    i, strerror(-ret));
-            return (ret);
-        }
-    }
-
-    return 0;
-}
 
 int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 {

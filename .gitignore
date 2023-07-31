@@ -20,3 +20,4 @@ src/dpdk-replay
 .vscode/*
 compile_commands.json
 src/*.csv
+build

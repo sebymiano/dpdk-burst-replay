@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright 2018 Jonathan Ribas, FraudBuster. All rights reserved.
+# Copyright 2023 Sebastiano Miano. All rights reserved.
 
 cmake_minimum_required(VERSION 3.12)
 project(dpdk-burst-replay VERSION 1.1.1)
@@ -14,6 +14,24 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 add_definitions(-DDPDK_REPLAY_VERSION_GIT="${DPDK_REPLAY_VERSION_GIT}")
+
+# Find libyaml on the system
+find_library(LIBYAML_LIBRARY NAMES yaml)
+
+# If libyaml is found, build libcyaml
+if (LIBYAML_LIBRARY)
+    # Execute the Makefile-based build for libcyaml
+    execute_process(
+        COMMAND make install VARIANT=release PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libs/libcyaml
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/libs/libcyaml
+    )
+
+    # Add libcyaml as a subdirectory
+    # add_subdirectory(libs/libcyaml)
+else()
+    # Display an error message if libyaml is not found
+    message(FATAL_ERROR "libyaml not found. Please install libyaml and try again.")
+endif()
 
 # Add the 'src' directory
 add_subdirectory(src)

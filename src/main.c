@@ -9,9 +9,12 @@
 #include <stdio.h>
 #include <errno.h>
 #include <math.h>
+#include <unistd.h>
 
 #include <rte_ethdev.h>
 
+#include "config_yaml.h"
+#include "argparse.h"
 #include "main.h"
 
 void usage(void)
@@ -39,21 +42,31 @@ void usage(void)
 #ifdef DEBUG
 void print_opts(const struct cmd_opts* opts)
 {
-    int i;
-
     if (!opts)
         return ;
     puts("--");
     printf("numacore: %i\n", (int)(opts->numacore));
     printf("nb runs: %u\n", opts->nbruns);
-    /* if (opts->maxbitrate) */
-    /*     printf("MAX BITRATE: %u\n", opts->maxbitrate); */
-    /* else */
-    /*     puts("MAX BITRATE: FULL SPEED"); */
-    printf("trace: %s\n", opts->trace);
+    printf("timeout: %u\n", opts->timeout);
+    printf("wait-enter: %s\n", opts->wait ? "yes" : "no");
+    printf("write-csv: %s\n", opts->write_csv ? "yes" : "no");
+    printf("slow-mode: %s\n", opts->slow_mode ? "yes" : "no");
+    printf("maxbitrate: %u\n", opts->maxbitrate);
+
+    printf("nb traces: %u\n", opts->nb_traces);
+    for (int i = 0; i < opts->nb_traces; i++)
+        printf("trace[%d]: %s\n", i, opts->traces[i]);
+    
     printf("pci nic ports:");
-    for (i = 0; opts->pcicards[i]; i++)
+    for (int i = 0; i < opts->nb_pcicards; i++)
         printf(" %s", opts->pcicards[i]);
+
+    for (int i = 0; i < opts->nb_stats; i++)
+        printf("stats[%d]: %s\n", i, opts->stats[i]);
+
+    for (int i = 0; i < opts->nb_stats_file_name; i++)
+        printf("stats_name[%d]: %s\n", i, opts->stats_name[i]);
+    
     puts("\n--");
     return ;
 }
@@ -86,7 +99,7 @@ char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis)
     return (list);
 }
 
-bool str_in_list(const char *str, const char **list, int len) {
+bool str_in_list(const char *str, char **list, int len) {
     for (int i = 0; i < len; i++) {
         if (strcmp(str, list[i]) == 0) {
             return true;
@@ -150,6 +163,119 @@ char** str_to_stats_name_list(struct cmd_opts* opts, char* stats)
     return (list);
 }
 
+int parse_config_file(const char *config_file, struct cmd_opts* opts) {
+    int ret = 0;
+    cyaml_err_t err;
+    config_t *cfg;
+
+    /* Load input file. */
+    err = cyaml_load_file(config_file, &config, &top_schema, (cyaml_data_t **)&cfg, NULL);
+    if (err != CYAML_OK) {
+        fprintf(stderr, "ERROR: %s\n", cyaml_strerror(err));
+        return EXIT_FAILURE;
+    }
+
+    /* Check whether a pcap is set and the send port is set */
+    if (cfg->traces_count == 0 || cfg->send_port_pci == NULL) {
+        fprintf(stderr, "ERROR: You must specify at least one pcap file and the send port\n");
+        return EXIT_FAILURE;
+    }
+
+    /* Assign traces to the opts struct */
+    opts->traces = malloc(sizeof(char*) * cfg->traces_count);
+    if (!opts->traces) {
+        fprintf(stderr, "ERROR: Cannot allocate memory for traces\n");
+        return EXIT_FAILURE;
+    }
+    for (int i = 0; i < cfg->traces_count; i++) {
+        opts->traces[i] = strdup(cfg->traces[i].path);
+    }
+    opts->nb_traces = cfg->traces_count;
+
+    /* Check whether the numa node is correct */
+    if (cfg->numacore < 0 || cfg->numacore > 2) {
+        fprintf(stderr, "ERROR: The NUMA node must be between 0 and 2\n");
+        return EXIT_FAILURE;
+    }
+    opts->numacore = cfg->numacore;
+
+    /* Check whether the number of runs is correct */
+    if (cfg->nbruns <= 0) {
+        fprintf(stderr, "ERROR: The number of runs must be greater than 0\n");
+        return EXIT_FAILURE;
+    }
+    opts->nbruns = cfg->nbruns;
+
+    /* Check whether the timeout is correct */
+    if (cfg->timeout <= 0) {
+        fprintf(stderr, "ERROR: The timeout must be greater than 0\n");
+        return EXIT_FAILURE;
+    }
+    opts->timeout = cfg->timeout;
+
+    /* Check whether the max bitrate is correct */
+    if (cfg->max_bitrate < 0) {
+        fprintf(stderr, "ERROR: The max bitrate must be greater than 0\n");
+        return EXIT_FAILURE;
+    }
+    opts->maxbitrate = cfg->max_bitrate;
+
+    cfg->wait_enter ? (opts->wait = 1) : (opts->wait = 0);
+    cfg->write_csv ? (opts->write_csv = 1) : (opts->write_csv = 0);
+    cfg->slow_mode ? (opts->slow_mode = 1) : (opts->slow_mode = 0);
+
+    /* Check whether the stats ports are correct */
+    if (cfg->stats_count > 0) {
+        opts->stats = malloc(sizeof(char*) * cfg->stats_count);
+        opts->stats_name = malloc(sizeof(char*) * cfg->stats_count);
+        if (!opts->stats) {
+            fprintf(stderr, "ERROR: Cannot allocate memory for stats ports\n");
+            return EXIT_FAILURE;
+        }
+        for (int i = 0; i < cfg->stats_count; i++) {
+            opts->stats[i] = strdup(cfg->stats[i].pci_id);
+            opts->stats_name[i] = strdup(cfg->stats[i].file_name);
+        }
+        opts->nb_stats = cfg->stats_count;
+        opts->nb_stats_file_name = cfg->stats_count;
+    }
+
+    /* Check whether the read ports are correct */
+    if (cfg->send_port_pci != NULL) {
+        /* TODO: In the future we should support more */
+        unsigned int send_port_count = 1;
+        opts->pcicards = malloc(sizeof(char*) * send_port_count);
+        if (!opts->pcicards) {
+            fprintf(stderr, "ERROR: Cannot allocate memory for read ports\n");
+            return EXIT_FAILURE;
+        }
+        for (int i = 0; i < send_port_count; i++) {
+            opts->pcicards[i] = strdup(cfg->send_port_pci);
+        }
+        opts->nb_pcicards = send_port_count;
+        opts->nb_total_ports = send_port_count;
+    }
+
+    if (opts->nb_stats > 0) {
+        for (int i = 0; opts->stats[i]; i++) {
+            if (!str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
+                // If the device is already in the list of pci cards used for PCAP we don't count it
+                opts->nb_total_ports += 1;
+            }
+        }
+    }
+
+    if (opts->nb_stats_file_name > 0 && opts->nb_stats_file_name != opts->nb_stats) {
+        printf("You should provide the same number of file name and stats ports\n");
+        return (EPROTO);
+    }
+
+    cyaml_free(&config, &top_schema, cfg, 0);
+
+    return EXIT_SUCCESS;
+}
+
+
 int parse_options(const int ac, char** av, struct cmd_opts* opts)
 {
     int i;
@@ -157,11 +283,23 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
     if (!av || !opts)
         return (EINVAL);
 
+    if (ac == 3) {
+        if (!strcmp(av[1], "--config")) {
+            printf("Parsing configuration file %s\n", av[2]);
+            opts->config_file = av[2];
+            if (parse_config_file(opts->config_file, opts) != 0) {
+                return (EPROTO);
+            } 
+            return (0);
+        }
+    }
+
     /* if no trace or no pcicard is specified */
     if (ac < 3)
         return (ENOENT);
 
     for (i = 1; i < ac - 2; i++) {
+        printf("av[%d] = %s\n", i, av[i]);
         /* --numacore numacore */
         if (!strcmp(av[i], "--numacore")) {
             int nc;
@@ -233,7 +371,14 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
     }
     if (i + 2 > ac)
         return (EPROTO);
-    opts->trace = av[i];
+
+    opts->traces = malloc(sizeof(char*) * 1);
+    if (!opts->traces)
+        return (ENOMEM);
+
+    opts->traces[0] = strdup(av[i]);
+    opts->nb_traces = 1;
+
     opts->pcicards = str_to_pcicards_list(opts, av[i + 1]);
 
     opts->nb_total_ports = opts->nb_pcicards;
@@ -328,17 +473,41 @@ int main(const int ac, char** av)
 {
     struct cmd_opts         opts;
     struct cpus_bindings    cpus;
-    struct dpdk_ctx         dpdk;
-    struct pcap_ctx         pcap;
+    struct dpdk_ctx         *dpdk_cfgs;
+    struct pcap_ctx         *pcap_cfgs;
     int                     ret;
     struct thread_ctx*      stats_ctx = NULL;
 
     /* set default opts */
     bzero(&cpus, sizeof(cpus));
     bzero(&opts, sizeof(opts));
-    bzero(&dpdk, sizeof(dpdk));
-    bzero(&pcap, sizeof(pcap));
+    // bzero(&dpdk, sizeof(dpdk));
+    // bzero(&pcaps, sizeof(pcaps));
     opts.nbruns = 1;
+
+    /* If there is a configuration file config.yaml placed in the 
+     * same directory as the executable, we will use it to set the
+     * default options. 
+     */
+
+    /* Check if file exists */
+    // if (access(config_file, F_OK) == -1) {
+    //     printf("Configuration file %s does not exist\n", config_file);
+        
+    //     /* parse cmdline options */
+    //     ret = parse_options(ac, av, &opts);
+    //     if (ret) {
+    //         usage();
+    //         return (1);
+    //     }
+    // } else {
+    //     printf("Parsing configuration file %s\n", config_file);
+    //     ret = parse_config_file(config_file, &opts);
+    //     if (ret) {
+    //         usage();
+    //         return (1);
+    //     }
+    // }
 
     /* parse cmdline options */
     ret = parse_options(ac, av, &opts);
@@ -346,6 +515,7 @@ int main(const int ac, char** av)
         usage();
         return (1);
     }
+    
 #ifdef DEBUG
     print_opts(&opts);
 #endif /* DEBUG */
@@ -355,14 +525,34 @@ int main(const int ac, char** av)
       . number of packets
       . biggest packet size
     */
-    ret = preload_pcap(&opts, &pcap);
-    if (ret)
-        goto mainExit;
+    pcap_cfgs = malloc(sizeof(*pcap_cfgs) * opts.nb_traces);
+    if (!pcap_cfgs) {
+        printf("%s: malloc failed.\n", __FUNCTION__);
+        return (ENOMEM);
+    }
 
-    /* calculate needed memory to allocate for mempool */
-    ret = check_needed_memory(&opts, &pcap, &dpdk);
-    if (ret)
-        goto mainExit;
+    dpdk_cfgs = malloc(sizeof(*dpdk_cfgs) * opts.nb_traces);
+    if (!dpdk_cfgs) {
+        printf("%s: malloc failed.\n", __FUNCTION__);
+        return (ENOMEM);
+    }
+    
+    for (int i = 0; i < opts.nb_traces; i++) {
+        bzero(&pcap_cfgs[i], sizeof(pcap_cfgs[i]));
+        bzero(&dpdk_cfgs[i], sizeof(dpdk_cfgs[i]));
+
+        ret = preload_pcap(&opts, &pcap_cfgs[i], i);
+        if (ret)
+            goto mainExit;
+
+        printf("Checking needed memory for pcap file %s\n", opts.traces[i]);
+        /* calculate needed memory to allocate for mempool */
+        ret = check_needed_memory(&opts, &pcap_cfgs[i], &dpdk_cfgs[i]);
+        if (ret)
+            goto mainExit;
+        
+        printf("\n----------------------\n");
+    }
 
     /*
       check that we have enough cpus, find the ones to use and calculate
@@ -373,29 +563,35 @@ int main(const int ac, char** av)
         goto mainExit;
 
     /* init dpdk eal and mempool */
-    ret = init_dpdk_eal_mempool(&opts, &cpus, &dpdk);
+    ret = init_dpdk_eal_mempool(&opts, &cpus, dpdk_cfgs, opts.nb_traces);
     if (ret)
         goto mainExit;
 
-    /* cache pcap file into mempool */
-    ret = load_pcap(&opts, &pcap, &cpus, &dpdk);
-    if (ret)
-        goto mainExit;
+    for (int i = 0; i < opts.nb_traces; i++) {
+        /* cache pcap file into mempool */
+        ret = load_pcap(&opts, &pcap_cfgs[i], &cpus, &dpdk_cfgs[i], 1);
+        if (ret)
+            goto mainExit;
+    }
 
     /* init dpdk ports to send pkts */
-    ret = init_dpdk_ports(&cpus, &opts);
+    ret = init_dpdk_ports(&cpus, &opts, 1);
     if (ret)
         goto mainExit;
 
     /* Start all threads (PCAP and Stats) */
-    ret = start_all_threads(&opts, &cpus, &dpdk, &pcap);
+    ret = start_all_threads(&opts, &cpus, dpdk_cfgs, pcap_cfgs, opts.nb_traces);
     if (ret)
         goto mainExit;
 
 mainExit:
     /* cleanup */
-    clean_pcap_ctx(&pcap);
-    dpdk_cleanup(&dpdk, &cpus);
+    for (int i = 0; i < opts.nb_traces; i++) {
+        clean_pcap_ctx(&pcap_cfgs[i]);
+        dpdk_cleanup(&dpdk_cfgs[i], &cpus);
+    }
+    free(dpdk_cfgs);
+    free(pcap_cfgs);
     if (cpus.cpus_to_use)
         free(cpus.cpus_to_use);
     return (ret);

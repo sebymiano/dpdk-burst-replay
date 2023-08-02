@@ -17,6 +17,7 @@
 #include <rte_time.h>
 
 #include "main.h"
+#include "argparse.h"
 
 #define IFG_PLUS_PREAMBLE 20
 
@@ -331,14 +332,14 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
 
 int init_dpdk_eal_mempool(const struct cmd_opts* opts,
                           const struct cpus_bindings* cpus,
-                          struct dpdk_ctx* dpdk)
+                          struct dpdk_ctx* dpdk_cfgs, unsigned int pcap_num)
 {
     char**          eal_args;
     int             eal_args_ac = 0;
     unsigned int    nb_ports;
     int             ret;
 
-    if (!opts || !cpus || !dpdk)
+    if (!opts || !cpus || !dpdk_cfgs)
         return (EINVAL);
 
     /* API BREAKAGE ON 17.05 */
@@ -349,7 +350,7 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
 #endif
 
     /* craft an eal arg list */
-    eal_args = fill_eal_args(opts, cpus, dpdk, &eal_args_ac);
+    eal_args = fill_eal_args(opts, cpus, &dpdk_cfgs[0], &eal_args_ac);
     if (!eal_args) {
         printf("%s: fill_eal_args failed.\n", __FUNCTION__);
         return (1);
@@ -388,35 +389,40 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
         return (1);
     }
 
-    printf("-> Create mempool of %lu mbufs of %lu octs.\n",
-           dpdk->nb_mbuf, dpdk->mbuf_sz);
-    dpdk->pktmbuf_pool = rte_mempool_create("dpdk_replay_mempool",
-                                            dpdk->nb_mbuf,
-                                            dpdk->mbuf_sz,
+    for (int i = 0; i < opts->nb_traces; i++) {
+        printf("-> Create mempool of %lu mbufs of %lu octs.\n", dpdk_cfgs[i].nb_mbuf, dpdk_cfgs[i].mbuf_sz);
+        char mempool_name[PATH_MAX];
+        snprintf(mempool_name, sizeof(mempool_name), "dpdk_replay_mempool_%d", i);
+        dpdk_cfgs[i].pktmbuf_pool = rte_mempool_create(mempool_name,
+                                            dpdk_cfgs[i].nb_mbuf,
+                                            dpdk_cfgs[i].mbuf_sz,
                                             MBUF_CACHE_SZ,
                                             sizeof(struct rte_pktmbuf_pool_private),
                                             rte_pktmbuf_pool_init, NULL,
                                             rte_pktmbuf_init, NULL,
                                             cpus->numacore,
                                             0);
-    if (dpdk->pktmbuf_pool == NULL) {
-        fprintf(stderr, "DPDK: RTE Mempool creation failed (%s)\n",
-                rte_strerror(rte_errno));
-#if API_AT_LEAST_AS_RECENT_AS(18, 05)
-        if (rte_errno == ENOMEM
-            && (dpdk->nb_mbuf * dpdk->mbuf_sz /1024/1024) > RTE_MAX_MEM_MB_PER_LIST)
-            fprintf(stderr, "Your version of DPDK was configured to use at maximum"
-                    " %u Mo, or you try to allocate ~%lu Mo.\n"
-                    "Try to recompile DPDK by setting CONFIG_RTE_MAX_MEM_MB_PER_LIST"
-                    " according to your needs.\n", RTE_MAX_MEM_MB_PER_LIST,
-                    dpdk->nb_mbuf * dpdk->mbuf_sz /1024/1024);
-#endif /* API_AT_LEAST_AS_RECENT_AS(18, 05) */
-        return (rte_errno);
+        if (dpdk_cfgs[i].pktmbuf_pool == NULL) {
+            fprintf(stderr, "DPDK: RTE Mempool creation failed (%s)\n",
+                    rte_strerror(rte_errno));
+    #if API_AT_LEAST_AS_RECENT_AS(18, 05)
+            if (rte_errno == ENOMEM
+                && (dpdk_cfgs[i].nb_mbuf * dpdk_cfgs[i].mbuf_sz /1024/1024) > RTE_MAX_MEM_MB_PER_LIST)
+                fprintf(stderr, "Your version of DPDK was configured to use at maximum"
+                        " %u Mo, or you try to allocate ~%lu Mo.\n"
+                        "Try to recompile DPDK by setting CONFIG_RTE_MAX_MEM_MB_PER_LIST"
+                        " according to your needs.\n", RTE_MAX_MEM_MB_PER_LIST,
+                        dpdk_cfgs[i].nb_mbuf * dpdk_cfgs[i].mbuf_sz /1024/1024);
+    #endif /* API_AT_LEAST_AS_RECENT_AS(18, 05) */
+            return (rte_errno);
+        }
     }
+
+    
     return (0);
 }
 
-int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
+int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, unsigned int needed_cpus)
 {
     int i;
     int numa;
@@ -424,7 +430,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
     if (!cpus)
         return (EINVAL);
 
-    for (i = 0; (unsigned)i < cpus->nb_needed_pcap_cpus; i++) {
+    for (i = 0; (unsigned)i < needed_cpus; i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {
@@ -438,7 +444,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts)
     }
 
     // Now if I have a device to read packets from I need to setup the corresponding port
-    for (i = cpus->nb_needed_pcap_cpus; (unsigned)i < (opts->nb_total_ports); i++) {
+    for (i = needed_cpus; (unsigned)i < (opts->nb_total_ports); i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {
@@ -515,7 +521,7 @@ int remote_thread(void* thread_ctx)
         return (errno);
     }
 
-    printf("RX port id: %d, TX port id: %d\n", ctx->rx_port_id, ctx->tx_port_id);
+    printf("[Thread %d] RX port id: %d, TX port id: %d\n", thread_id, ctx->rx_port_id, ctx->tx_port_id);
     if (ctx->rx_port_id >= 0) {
         is_stats_thread = true;
     } else {
@@ -523,15 +529,19 @@ int remote_thread(void* thread_ctx)
     }
 
     #ifdef DEBUG
-    printf("Starting thread %i.\n", thread_id);
+    printf("[Thread %d] NB TX queues: %i\n", thread_id, ctx->nb_tx_queues);
+    printf("[Thread %d] NB TX queues start: %i\n", thread_id, ctx->nb_tx_queues_start);
+    printf("[Thread %d] NB TX queues end: %i\n", thread_id, ctx->nb_tx_queues_end);
     #endif
 
     if (!is_stats_thread) {
         printf("Sending PCAP trace. Wait %d seconds\n", ctx->timeout);
         mbuf = ctx->pcap_cache->mbufs;
 
+        unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
+
         /* iterate on each wanted runs */
-        for (run_cpt = ctx->nbruns, tx_queue = ctx->total_drop = ctx->total_drop_sz = 0;
+        for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0;
             run_cpt;
             ctx->total_drop += nb_drop, run_cpt--) {
             /* iterate on pkts for every batch of BURST_SZ number of packets */
@@ -541,17 +551,23 @@ int remote_thread(void* thread_ctx)
                 /* calculate the mbuf index for the current batch */
                 index = ctx->nb_pkt - total_to_sent;
 
+                /* Prefetch the mbuf data before sending the packet burst */
+                // for (int i = 0; i < to_sent; i++) {
+                //     rte_prefetch0(rte_pktmbuf_mtod(mbuf[index + i], void *));
+                // }
+
                 /* send the burst batch, and retry NB_RETRY_TX times if we */
                 /* didn't success to sent all the wanted batch */
-                for (total_sent = 0, retry_tx = NB_RETRY_TX;
+                for (total_sent = 0, retry_tx = retry_tx_cfg;
                     total_sent < to_sent && retry_tx;
                     total_sent += nb_sent, retry_tx--) {
                     nb_sent = rte_eth_tx_burst(ctx->tx_port_id,
-                                            (tx_queue++ % NB_TX_QUEUES),
+                                            (tx_queue++ % ctx->nb_tx_queues_end),
                                             &(mbuf[index + total_sent]),
                                             to_sent - total_sent);
-                    if (retry_tx != NB_RETRY_TX &&
-                        tx_queue % NB_TX_QUEUES == 0)
+                    // printf("[Thread %d] Sent %d packets\n", thread_id, nb_sent);
+                    if (retry_tx != retry_tx_cfg &&
+                        tx_queue % ctx->nb_tx_queues_end == 0)
                         usleep(100);
                 }
                 /* free unseccessfully sent  */
@@ -702,7 +718,7 @@ int remote_thread(void* thread_ctx)
 }
 
 int process_result_stats(const struct cpus_bindings* cpus,
-                         const struct dpdk_ctx* dpdk,
+                         const struct dpdk_ctx* dpdk_cfgs,
                          const struct cmd_opts* opts,
                          const struct thread_ctx* ctx)
 {
@@ -711,7 +727,7 @@ int process_result_stats(const struct cpus_bindings* cpus,
     unsigned long int   total_pkt_sent, total_pkt_sent_sz;
     unsigned int        i, total_drop, total_pkt;
 
-    if (!cpus || !dpdk || !opts || !ctx)
+    if (!cpus || !dpdk_cfgs || !opts || !ctx)
         return (EINVAL);
 
     total_pps = total_bitrate = 0;
@@ -719,7 +735,7 @@ int process_result_stats(const struct cpus_bindings* cpus,
     puts("RESULTS :");
     for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
         total_pkt_sent = (ctx[i].nb_pkt * opts->nbruns) - ctx[i].total_drop;
-        total_pkt_sent_sz = (dpdk->pcap_sz * opts->nbruns) - ctx[i].total_drop_sz;
+        total_pkt_sent_sz = (dpdk_cfgs[i].pcap_sz * opts->nbruns) - ctx[i].total_drop_sz;
         pps = total_pkt_sent / ctx[i].duration;
         bitrate = total_pkt_sent_sz / ctx[i].duration
             * 8 /* Bytes to bits */
@@ -742,8 +758,9 @@ int process_result_stats(const struct cpus_bindings* cpus,
 
 int start_all_threads(const struct cmd_opts* opts,
                      const struct cpus_bindings* cpus,
-                     const struct dpdk_ctx* dpdk,
-                     const struct pcap_ctx* pcap)
+                     const struct dpdk_ctx* dpdk_cfgs,
+                     const struct pcap_ctx* pcap_cfgs,
+                     unsigned int pcap_num)
 {
     struct thread_ctx* ctx = NULL;
     sem_t sem, sem_stop;
@@ -770,11 +787,13 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].sem = &sem;
         ctx[i].sem_stop = &sem_stop;
         ctx[i].rx_port_id = -1;
-        ctx[i].tx_port_id = i;
+        ctx[i].tx_port_id = 0;
         ctx[i].nbruns = opts->nbruns;
-        ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
-        ctx[i].nb_pkt = pcap->nb_pkts;
-        ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].pcap_cache = &(dpdk_cfgs[i].pcap_caches[0]);
+        ctx[i].nb_pkt = pcap_cfgs[i].nb_pkts;
+        ctx[i].nb_tx_queues = NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
+        ctx[i].nb_tx_queues_start = i * NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
+        ctx[i].nb_tx_queues_end = ctx[i].nb_tx_queues_start + NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
@@ -788,8 +807,8 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus;
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
-        ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
-        ctx[i].nb_pkt = pcap->nb_pkts;
+        ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
+        ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
@@ -804,8 +823,8 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
-        ctx[i].pcap_cache = &(dpdk->pcap_caches[i]);
-        ctx[i].nb_pkt = pcap->nb_pkts;
+        ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
+        ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
@@ -890,7 +909,7 @@ int start_all_threads(const struct cmd_opts* opts,
     }
 
     /* get results */
-    ret = process_result_stats(cpus, dpdk, opts, ctx);
+    ret = process_result_stats(cpus, dpdk_cfgs, opts, ctx);
     free(ctx);
     return (ret);
 }

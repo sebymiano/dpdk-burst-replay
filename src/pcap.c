@@ -97,7 +97,7 @@ int add_pkt_to_cache(const struct dpdk_ctx* dpdk, const int cache_index,
     return (0);
 }
 
-int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap)
+int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned int pcap_num)
 {
     unsigned char   pkt_buf[MAX_PKT_SZ];
     pcaprec_hdr_t   pcap_rechdr;
@@ -112,9 +112,9 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap)
         return (EINVAL);
 
     /* open wanted file */
-    pcap->fd = open(opts->trace, O_RDONLY);
+    pcap->fd = open(opts->traces[pcap_num], O_RDONLY);
     if (pcap->fd < 0) {
-        printf("open of %s failed: %s\n", opts->trace, strerror(errno));
+        printf("open of %s failed: %s\n", opts->traces[pcap_num], strerror(errno));
         return (errno);
     }
 
@@ -124,11 +124,11 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap)
         goto preload_pcapErrorInit;
 
     /* get file informations */
-    ret = stat(opts->trace, &s);
+    ret = stat(opts->traces[pcap_num], &s);
     if (ret)
         goto preload_pcapErrorInit;
     s.st_size -= sizeof(pcap_hdr_t);
-    printf("preloading %s file (of size: %li bytes)\n", opts->trace, s.st_size);
+    printf("preloading %s file (of size: %li bytes)\n", opts->traces[pcap_num], s.st_size);
     pcap->cap_sz = s.st_size;
 
     /* loop on file to read all saved packets */
@@ -193,7 +193,8 @@ preload_pcapErrorInit:
 }
 
 int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
-              const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk)
+              const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk,
+              unsigned int needed_pcap_cpus)
 {
     pcaprec_hdr_t   pcap_rechdr;
     unsigned char   pkt_buf[MAX_PKT_SZ];
@@ -208,13 +209,13 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
         return (EINVAL);
 
     /* alloc needed pkt caches and bzero them */
-    dpdk->pcap_caches = malloc(sizeof(*(dpdk->pcap_caches)) * (cpus->nb_needed_pcap_cpus));
+    dpdk->pcap_caches = malloc(sizeof(*(dpdk->pcap_caches)) * (needed_pcap_cpus));
     if (!dpdk->pcap_caches) {
         printf("malloc of pcap_caches failed.\n");
         return (ENOMEM);
     }
-    bzero(dpdk->pcap_caches, sizeof(*(dpdk->pcap_caches)) * (cpus->nb_needed_pcap_cpus));
-    for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
+    bzero(dpdk->pcap_caches, sizeof(*(dpdk->pcap_caches)) * (needed_pcap_cpus));
+    for (i = 0; i < needed_pcap_cpus; i++) {
         dpdk->pcap_caches[i].mbufs = malloc(sizeof(*(dpdk->pcap_caches[i].mbufs)) *
                                             pcap->nb_pkts);
         if (dpdk->pcap_caches[i].mbufs == NULL) {
@@ -235,7 +236,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
     if (ret)
         goto load_pcapError;
 
-    printf("-> Will cache %i pkts on %i caches.\n", pcap->nb_pkts, cpus->nb_needed_pcap_cpus);
+    printf("-> Will cache %i pkts on %i caches.\n", pcap->nb_pkts, needed_pcap_cpus);
     for (; cpt < pcap->nb_pkts; cpt++) {
         /* get packet pcap header */
         nb_read = read(pcap->fd, &pcap_rechdr, sizeof(pcap_rechdr));
@@ -268,7 +269,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
         total_read += nb_read;
 
         /* add packet to caches */
-        for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
+        for (i = 0; i < needed_pcap_cpus; i++) {
             ret = add_pkt_to_cache(dpdk, i, pkt_buf, nb_read, cpt, opts->nbruns);
             if (ret) {
                 fprintf(stderr, "\nadd_pkt_to_cache failed on pkt.\n");

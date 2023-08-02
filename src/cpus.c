@@ -89,7 +89,7 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
 
     /* calculate the number of needed cpu cores */
     for (i = 0; opts->pcicards[i]; i++);
-    cpus->nb_needed_pcap_cpus = i;
+    cpus->nb_needed_pcap_cpus = i * opts->nb_traces;
     printf("-> Needed cpus for PCAP: %u\n", cpus->nb_needed_pcap_cpus);
 
     if (opts->nb_stats > 0) {

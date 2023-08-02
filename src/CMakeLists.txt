@@ -8,6 +8,7 @@ add_executable(dpdk-replay
     dpdk.c
     pcap.c
     utils.c
+    argparse.c
 )
 
 # Add CFLAGS for dpdk-replay
@@ -26,6 +27,9 @@ set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}/../libs/libcyaml;${CMAKE_PREF
 message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 
 pkg_check_modules(CYAML REQUIRED libcyaml)
+
+set(CYAML_STATIC_LDFLAGS "-L${CMAKE_CURRENT_BINARY_DIR}/../libs/libcyaml/lib;-l:libcyaml.a;-lyaml")
+message(STATUS "CYAML_STATIC_LDFLAGS: ${CYAML_STATIC_LDFLAGS}")
 target_compile_options(dpdk-replay PRIVATE ${CYAML_CFLAGS})
 target_link_libraries(dpdk-replay PRIVATE ${CYAML_STATIC_LDFLAGS})
 

@@ -14,7 +14,7 @@
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
-#define NB_TX_QUEUES    64 /* ^2 needed to make fast modulos % */
+#define NB_TX_QUEUES    4 /* ^2 needed to make fast modulos % */
 #define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
 #define NB_MAX_PORTS    5
 #define BURST_SZ        128
@@ -62,12 +62,14 @@ struct cmd_opts {
     int             wait;
     int             write_csv;
     int             slow_mode;
-    char*           trace;
+    char**          traces;
+    int             nb_traces;
     char**          stats;
     int             nb_stats;
     int             nb_total_ports;
     int             nb_stats_file_name;
     char**          stats_name;
+    char*           config_file;
 };
 
 /* struct to store the cpus context */
@@ -121,6 +123,8 @@ struct                  thread_ctx {
     int                 nbruns;
     unsigned int        nb_pkt;
     int                 nb_tx_queues;
+    int                 nb_tx_queues_start;
+    int                 nb_tx_queues_end;
     /* results */
     double              duration;
     unsigned int        total_drop;
@@ -150,8 +154,8 @@ int                 init_cpus(const struct cmd_opts* opts, struct cpus_bindings*
 /* DPDK.C */
 int                 init_dpdk_eal_mempool(const struct cmd_opts* opts,
                                           const struct cpus_bindings* cpus,
-                                          struct dpdk_ctx* dpdk);
-int                 init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts);
+                                          struct dpdk_ctx* dpdk_cfgs, unsigned int pcap_num);
+int                 init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, unsigned int needed_cpus);
 void*               myrealloc(void* ptr, size_t new_size);
 int                 start_tx_threads(const struct cmd_opts* opts,
                                      const struct cpus_bindings* cpus,
@@ -159,17 +163,19 @@ int                 start_tx_threads(const struct cmd_opts* opts,
                                      const struct pcap_ctx *pcap);
 int                 start_all_threads(const struct cmd_opts* opts,
                                      const struct cpus_bindings* cpus,
-                                     const struct dpdk_ctx* dpdk,
-                                     const struct pcap_ctx *pcap);
+                                     const struct dpdk_ctx *dpdk_cfgs,
+                                     const struct pcap_ctx *pcap_cfgs,
+                                     unsigned int pcap_num);
 struct thread_ctx * start_stats_threads(const struct cmd_opts* opts,
                                         const struct cpus_bindings* cpus);
 void                dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus);
-bool                str_in_list(const char *str, const char **list, int len);
+bool                str_in_list(const char *str, char **list, int len);
 
 /* PCAP.C */
-int                 preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap);
+int                 preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned int pcap_num);
 int                 load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
-                              const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk);
+                              const struct cpus_bindings* cpus, struct dpdk_ctx* dpdk,
+                              unsigned int needed_cpus);
 void                clean_pcap_ctx(struct pcap_ctx* pcap);
 
 /* UTILS.C */

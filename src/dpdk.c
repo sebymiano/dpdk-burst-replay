@@ -431,7 +431,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
     if (!cpus)
         return (EINVAL);
 
-    unsigned int num_tx_queues = NB_TX_QUEUES;
+    unsigned int num_tx_queues = 0;
 
     for (i = 0; i < opts->nb_traces; i++) {
         num_tx_queues += opts->traces[i].tx_queues;

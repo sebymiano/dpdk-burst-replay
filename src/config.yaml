@@ -1,7 +1,8 @@
 ---
 traces: 
-  - path: "/home/smiano/dev/caida-equinix/equinix-nyc.dirA.20190117-125910.UTC.anon.64.100000.pcap"
-numacore: 0
+  - path: "/mydata/equinix-nyc.dirA.20190117-125910.UTC.anon.64.1000000.pcap"
+    tx_queues: 4
+numacore: 1
 nbruns: 100000000
 timeout: 60
 max_bitrate: 10000000000
@@ -9,7 +10,7 @@ write_csv: True
 wait_enter: False
 slow_mode: False
 stats:
-  - pci_id: 0000:3b:00.0
+  - pci_id: 0000:81:00.0
     file_name: "result_v1_core1.csv"
-send_port_pci: 0000:3b:00.0
+send_port_pci: 0000:81:00.0
 

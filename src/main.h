@@ -10,6 +10,8 @@
 #include <semaphore.h>
 #include <stdbool.h>
 
+#include "config_yaml.h"
+
 #define DEBUG           1
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
@@ -62,7 +64,7 @@ struct cmd_opts {
     int             wait;
     int             write_csv;
     int             slow_mode;
-    char**          traces;
+    trace_t*        traces;
     int             nb_traces;
     char**          stats;
     int             nb_stats;
@@ -142,6 +144,7 @@ struct                  pcap_ctx {
     unsigned int        nb_pkts;
     unsigned int        max_pkt_sz;
     size_t              cap_sz;
+    unsigned int        tx_queues;
 };
 
 /*

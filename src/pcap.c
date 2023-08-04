@@ -112,23 +112,25 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         return (EINVAL);
 
     /* open wanted file */
-    pcap->fd = open(opts->traces[pcap_num], O_RDONLY);
+    pcap->fd = open(opts->traces[pcap_num].path, O_RDONLY);
     if (pcap->fd < 0) {
-        printf("open of %s failed: %s\n", opts->traces[pcap_num], strerror(errno));
+        printf("open of %s failed: %s\n", opts->traces[pcap_num].path, strerror(errno));
         return (errno);
     }
-
+    
+    pcap->tx_queues = opts->traces[pcap_num].tx_queues;
+    
     /* check pcap header */
     ret = check_pcap_hdr(pcap->fd);
     if (ret)
         goto preload_pcapErrorInit;
 
     /* get file informations */
-    ret = stat(opts->traces[pcap_num], &s);
+    ret = stat(opts->traces[pcap_num].path, &s);
     if (ret)
         goto preload_pcapErrorInit;
     s.st_size -= sizeof(pcap_hdr_t);
-    printf("preloading %s file (of size: %li bytes)\n", opts->traces[pcap_num], s.st_size);
+    printf("preloading %s file (of size: %li bytes)\n", opts->traces[pcap_num].path, s.st_size);
     pcap->cap_sz = s.st_size;
 
     /* loop on file to read all saved packets */

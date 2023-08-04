@@ -18,6 +18,7 @@ static const cyaml_config_t config = {
 
 typedef struct {
 	char *path;
+	int tx_queues;
 } trace_t;
 
 typedef struct {
@@ -46,7 +47,8 @@ typedef struct {
 
 static const cyaml_schema_field_t trace_entry_schema[] = {
 	CYAML_FIELD_STRING_PTR("path", CYAML_FLAG_POINTER, trace_t, path, 0, CYAML_UNLIMITED),
-	CYAML_FIELD_END 
+	CYAML_FIELD_INT("tx_queues", CYAML_FLAG_DEFAULT, trace_t, tx_queues),
+	CYAML_FIELD_END
 };
 
 static const cyaml_schema_value_t trace_entry = {

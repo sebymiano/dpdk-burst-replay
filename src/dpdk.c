@@ -199,7 +199,7 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
     return 0;
 }
 
-int dpdk_init_port(struct cpus_bindings* cpus, int port)
+int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_queues)
 {
     int                 ret, i;
 #ifdef DEBUG
@@ -212,14 +212,14 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port)
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
                               NB_RX_QUEUES, /* nb rx queue */
-                              NB_TX_QUEUES, /* nb tx queue */
+                              num_tx_queues, /* nb tx queue */
                               &ethconf) < 0) {
         fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
         return (-1);
     }
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */
-    for (i = 0; i < NB_TX_QUEUES; i++) {
+    for (i = 0; i < num_tx_queues; i++) {
         ret = rte_eth_tx_queue_setup(port,
                                      i,
                                      TX_QUEUE_SIZE,
@@ -430,6 +430,12 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
     if (!cpus)
         return (EINVAL);
 
+    unsigned int num_tx_queues = NB_TX_QUEUES;
+
+    for (i = 0; i < opts->nb_traces; i++) {
+        num_tx_queues += opts->traces[i].tx_queues;
+    }
+
     for (i = 0; (unsigned)i < needed_cpus; i++) {
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
@@ -438,7 +444,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
             return (1);
         }
         /* init ports */
-        if (dpdk_init_port(cpus, i))
+        if (dpdk_init_port(cpus, i, num_tx_queues))
             return (1);
         printf("-> NIC port %i ready.\n", i);
     }
@@ -551,24 +557,25 @@ int remote_thread(void* thread_ctx)
                 /* calculate the mbuf index for the current batch */
                 index = ctx->nb_pkt - total_to_sent;
 
-                /* Prefetch the mbuf data before sending the packet burst */
-                // for (int i = 0; i < to_sent; i++) {
-                //     rte_prefetch0(rte_pktmbuf_mtod(mbuf[index + i], void *));
-                // }
-
                 /* send the burst batch, and retry NB_RETRY_TX times if we */
                 /* didn't success to sent all the wanted batch */
                 for (total_sent = 0, retry_tx = retry_tx_cfg;
                     total_sent < to_sent && retry_tx;
                     total_sent += nb_sent, retry_tx--) {
                     nb_sent = rte_eth_tx_burst(ctx->tx_port_id,
-                                            (tx_queue++ % ctx->nb_tx_queues_end),
+                                            tx_queue,
                                             &(mbuf[index + total_sent]),
                                             to_sent - total_sent);
                     // printf("[Thread %d] Sent %d packets\n", thread_id, nb_sent);
                     if (retry_tx != retry_tx_cfg &&
                         tx_queue % ctx->nb_tx_queues_end == 0)
                         usleep(100);
+
+                    if (tx_queue >= ctx->nb_tx_queues_end) {
+                        tx_queue = ctx->nb_tx_queues_start;
+                    } else {
+                        tx_queue++;
+                    }
                 }
                 /* free unseccessfully sent  */
                 if (unlikely(!retry_tx))
@@ -791,9 +798,9 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[i].pcap_caches[0]);
         ctx[i].nb_pkt = pcap_cfgs[i].nb_pkts;
-        ctx[i].nb_tx_queues = NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
-        ctx[i].nb_tx_queues_start = i * NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
-        ctx[i].nb_tx_queues_end = ctx[i].nb_tx_queues_start + NB_TX_QUEUES/cpus->nb_needed_pcap_cpus;
+        ctx[i].nb_tx_queues = pcap_cfgs[i].tx_queues;
+        ctx[i].nb_tx_queues_start = i * pcap_cfgs[i].tx_queues;
+        ctx[i].nb_tx_queues_end = ctx[i].nb_tx_queues_start - 1 + pcap_cfgs[i].tx_queues;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;

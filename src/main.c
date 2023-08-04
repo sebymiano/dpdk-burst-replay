@@ -54,8 +54,10 @@ void print_opts(const struct cmd_opts* opts)
     printf("maxbitrate: %u\n", opts->maxbitrate);
 
     printf("nb traces: %u\n", opts->nb_traces);
-    for (int i = 0; i < opts->nb_traces; i++)
-        printf("trace[%d]: %s\n", i, opts->traces[i]);
+    for (int i = 0; i < opts->nb_traces; i++) {
+        printf("trace[%d]: %s\n", i, opts->traces[i].path);
+        printf("tx_queues[%d]: %d\n", i, opts->traces[i].tx_queues);
+    }
     
     printf("pci nic ports:");
     for (int i = 0; i < opts->nb_pcicards; i++)
@@ -182,13 +184,14 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     }
 
     /* Assign traces to the opts struct */
-    opts->traces = malloc(sizeof(char*) * cfg->traces_count);
+    opts->traces = malloc(sizeof(trace_t) * cfg->traces_count);
     if (!opts->traces) {
         fprintf(stderr, "ERROR: Cannot allocate memory for traces\n");
         return EXIT_FAILURE;
     }
     for (int i = 0; i < cfg->traces_count; i++) {
-        opts->traces[i] = strdup(cfg->traces[i].path);
+        opts->traces[i].path = strdup(cfg->traces[i].path);
+        opts->traces[i].tx_queues = cfg->traces[i].tx_queues;
     }
     opts->nb_traces = cfg->traces_count;
 
@@ -372,11 +375,12 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
     if (i + 2 > ac)
         return (EPROTO);
 
-    opts->traces = malloc(sizeof(char*) * 1);
+    opts->traces = malloc(sizeof(trace_t) * 1);
     if (!opts->traces)
         return (ENOMEM);
 
-    opts->traces[0] = strdup(av[i]);
+    opts->traces[0].path = strdup(av[i]);
+    opts->traces[0].tx_queues = NB_TX_QUEUES;
     opts->nb_traces = 1;
 
     opts->pcicards = str_to_pcicards_list(opts, av[i + 1]);
@@ -485,30 +489,6 @@ int main(const int ac, char** av)
     // bzero(&pcaps, sizeof(pcaps));
     opts.nbruns = 1;
 
-    /* If there is a configuration file config.yaml placed in the 
-     * same directory as the executable, we will use it to set the
-     * default options. 
-     */
-
-    /* Check if file exists */
-    // if (access(config_file, F_OK) == -1) {
-    //     printf("Configuration file %s does not exist\n", config_file);
-        
-    //     /* parse cmdline options */
-    //     ret = parse_options(ac, av, &opts);
-    //     if (ret) {
-    //         usage();
-    //         return (1);
-    //     }
-    // } else {
-    //     printf("Parsing configuration file %s\n", config_file);
-    //     ret = parse_config_file(config_file, &opts);
-    //     if (ret) {
-    //         usage();
-    //         return (1);
-    //     }
-    // }
-
     /* parse cmdline options */
     ret = parse_options(ac, av, &opts);
     if (ret) {
@@ -545,7 +525,7 @@ int main(const int ac, char** av)
         if (ret)
             goto mainExit;
 
-        printf("Checking needed memory for pcap file %s\n", opts.traces[i]);
+        printf("Checking needed memory for pcap file %s\n", opts.traces[i].path);
         /* calculate needed memory to allocate for mempool */
         ret = check_needed_memory(&opts, &pcap_cfgs[i], &dpdk_cfgs[i]);
         if (ret)

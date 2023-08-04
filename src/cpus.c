@@ -33,7 +33,7 @@ static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* c
 #endif /* DEBUG */
     for (i = 0, cpu_cpt = 0; i < cpus->nb_available_cpus; i++) {
         /* be sure that we get cores on the wanted numa */
-        if (cpus->numacore == numa_node_of_cpu(i)) {
+        if (cpus->numacore == numa_node_of_cpu(i) || cpus->numacore == -1) {
             cpus->cpus_to_use[cpu_cpt++] = i;
 #ifdef DEBUG
             printf(" %i", i);

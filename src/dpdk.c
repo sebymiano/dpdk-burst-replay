@@ -210,6 +210,7 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
         return (EINVAL);
 
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
+    printf("Configuring port %d with %d rx queues and %d tx queues\n", port, NB_RX_QUEUES, num_tx_queues);
     if (rte_eth_dev_configure(port,
                               NB_RX_QUEUES, /* nb rx queue */
                               num_tx_queues, /* nb tx queue */

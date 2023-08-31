@@ -672,7 +672,7 @@ int remote_thread(void* thread_ctx)
             // diff_time_ns = (current_time_ns - old_time_ns);
             // old_time_ns = current_time_ns;
 
-            printf("Diff cycles (ns): %lu\n", diff_cycles);
+            // printf("Diff cycles (ns): %lu\n", diff_cycles);
 
             rx_pkt_delta = stats.ipackets - old_stats.ipackets;
             rx_pkt_rate = diff_cycles > 0 ? (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;

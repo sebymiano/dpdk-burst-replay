@@ -550,14 +550,16 @@ int remote_thread(void* thread_ctx)
             wait_tx_rate = false;
         }
         // Calculate the time interval between packet sends based on desired rate
-        uint64_t target_interval;
+        uint64_t target_interval, start_time;
         if (wait_tx_rate) {
             target_interval = rte_get_tsc_hz() / (ctx->max_mpps * 1000000);
         }
 
         /* iterate on each wanted runs */
         for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0; run_cpt; ctx->total_drop += nb_drop, run_cpt--) {
-            uint64_t start_time = rte_get_tsc_cycles();
+            if (wait_tx_rate) {
+                start_time = rte_get_tsc_cycles();
+            }
             /* iterate on pkts for every batch of BURST_SZ number of packets */
             for (total_to_sent = ctx->nb_pkt, nb_drop = 0, to_sent = min(BURST_SZ, total_to_sent);
                 to_sent;
@@ -627,7 +629,7 @@ int remote_thread(void* thread_ctx)
         struct rte_eth_stats  stats;
 
         uint64_t   diff_cycles;
-        uint64_t   prev_cycles;
+        uint64_t   prev_cycles = rte_get_tsc_cycles();
         
         // uint64_t   current_time_ns;
         // uint64_t   old_time_ns = create_timestamp();
@@ -670,24 +672,24 @@ int remote_thread(void* thread_ctx)
             // diff_time_ns = (current_time_ns - old_time_ns);
             // old_time_ns = current_time_ns;
 
-            // printf("Diff time (ns): %lu\n", diff_time_ns);
+            printf("Diff cycles (ns): %lu\n", diff_cycles);
 
             rx_pkt_delta = stats.ipackets - old_stats.ipackets;
-            rx_pkt_rate = (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles;
+            rx_pkt_rate = diff_cycles > 0 ? (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             rx_bytes_delta = stats.ibytes - old_stats.ibytes;
             rx_bit_delta = (rx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
-            rx_bytes_rate = (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles;
+            rx_bytes_rate =  diff_cycles > 0 ? (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_pkt_delta = stats.opackets - old_stats.opackets;
-            tx_pkt_rate = (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles;
+            tx_pkt_rate =  diff_cycles > 0 ? (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_bytes_delta = stats.obytes - old_stats.obytes;
             tx_bit_delta = (tx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
-            tx_bytes_rate = (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles;
+            tx_bytes_rate =  diff_cycles > 0 ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            gbps = ((double)(rx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000;
+            gbps =  diff_cycles > 0 ? ((double)(rx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000 : 0;
             // Print stats with 2 decimal places
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
                     rx_pkt_rate,
@@ -696,7 +698,7 @@ int remote_thread(void* thread_ctx)
             // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
             // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
             // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            gbps = ((double)(tx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000;
+            gbps =  diff_cycles > 0 ? ((double)(tx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000 : 0;
             // gbps = (double)tx_bit_delta/diff_time_ns;
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f\n", 
                     tx_pkt_rate, 

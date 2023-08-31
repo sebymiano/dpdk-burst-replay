@@ -542,11 +542,18 @@ int remote_thread(void* thread_ctx)
 
     if (!is_stats_thread) {
         printf("Sending PCAP trace. Wait %d seconds\n", ctx->timeout);
+        printf("Max Mpps is: %d\n", ctx->max_mpps);
         mbuf = ctx->pcap_cache->mbufs;
-
+        bool wait_tx_rate = true;
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
+        if (ctx->max_mpps == -1) {
+            wait_tx_rate = false;
+        }
         // Calculate the time interval between packet sends based on desired rate
-        uint64_t target_interval = rte_get_tsc_hz() / (ctx->max_mpps * 1000000);
+        uint64_t target_interval;
+        if (wait_tx_rate) {
+            target_interval = rte_get_tsc_hz() / (ctx->max_mpps * 1000000);
+        }
 
         /* iterate on each wanted runs */
         for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0; run_cpt; ctx->total_drop += nb_drop, run_cpt--) {
@@ -592,13 +599,15 @@ int remote_thread(void* thread_ctx)
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
     #endif /* DEBUG */
 
-            uint64_t end_time = rte_get_tsc_cycles();
-            uint64_t elapsed_cycles = end_time - start_time;
+            if (wait_tx_rate) {
+                uint64_t end_time = rte_get_tsc_cycles();
+                uint64_t elapsed_cycles = end_time - start_time;
 
-            // If it took less time than the target interval, wait for the remaining time
-            if (elapsed_cycles < target_interval) {
-                uint64_t wait_cycles = target_interval - elapsed_cycles;
-                rte_delay_us(wait_cycles * 1000000 / rte_get_tsc_hz());
+                // If it took less time than the target interval, wait for the remaining time
+                if (elapsed_cycles < target_interval) {
+                    uint64_t wait_cycles = target_interval - elapsed_cycles;
+                    rte_delay_us(wait_cycles * 1000000 / rte_get_tsc_hz());
+                }
             }
 
             sem_getvalue(ctx->sem_stop, &sem_value);

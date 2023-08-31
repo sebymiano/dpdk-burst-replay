@@ -60,7 +60,7 @@ struct cmd_opts {
     int             numacore;
     int             nbruns;
     int             timeout;
-    float           max_mpps;
+    int           max_mpps;
     int             wait;
     int             write_csv;
     int             slow_mode;
@@ -127,7 +127,7 @@ struct                  thread_ctx {
     int                 nb_tx_queues;
     int                 nb_tx_queues_start;
     int                 nb_tx_queues_end;
-    float               max_mpps;
+    int               max_mpps;
     /* results */
     double              duration;
     unsigned int        total_drop;

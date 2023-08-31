@@ -51,7 +51,7 @@ void print_opts(const struct cmd_opts* opts)
     printf("wait-enter: %s\n", opts->wait ? "yes" : "no");
     printf("write-csv: %s\n", opts->write_csv ? "yes" : "no");
     printf("slow-mode: %s\n", opts->slow_mode ? "yes" : "no");
-    printf("max_mpps: %.2f\n", opts->max_mpps);
+    printf("max_mpps: %d\n", opts->max_mpps);
 
     printf("nb traces: %u\n", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {
@@ -64,7 +64,7 @@ void print_opts(const struct cmd_opts* opts)
         printf(" %s", opts->pcicards[i]);
 
     for (int i = 0; i < opts->nb_stats; i++)
-        printf("stats[%d]: %s\n", i, opts->stats[i]);
+        printf("\nstats[%d]: %s\n", i, opts->stats[i]);
 
     for (int i = 0; i < opts->nb_stats_file_name; i++)
         printf("stats_name[%d]: %s\n", i, opts->stats_name[i]);
@@ -216,8 +216,11 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     }
     opts->timeout = cfg->timeout;
 
+    if (cfg->max_mpps == -1) {
+        fprintf(stderr, "Bitrate is UNLIMITED\n");
+    }
     /* Check whether the max bitrate is correct */
-    if (cfg->max_mpps < 0) {
+    if (cfg->max_mpps < -1) {
         fprintf(stderr, "ERROR: The max bitrate must be greater than 0\n");
         return EXIT_FAILURE;
     }

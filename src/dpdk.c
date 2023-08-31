@@ -491,7 +491,6 @@ static uint64_t create_timestamp(void)
 	return rte_timespec_to_ns(&now);
 }
 
-
 int remote_thread(void* thread_ctx)
 {
     struct thread_ctx*  ctx;
@@ -546,11 +545,12 @@ int remote_thread(void* thread_ctx)
         mbuf = ctx->pcap_cache->mbufs;
 
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
+        // Calculate the time interval between packet sends based on desired rate
+        uint64_t target_interval = rte_get_tsc_hz() / (ctx->max_mpps * 1000000);
 
         /* iterate on each wanted runs */
-        for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0;
-            run_cpt;
-            ctx->total_drop += nb_drop, run_cpt--) {
+        for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0; run_cpt; ctx->total_drop += nb_drop, run_cpt--) {
+            uint64_t start_time = rte_get_tsc_cycles();
             /* iterate on pkts for every batch of BURST_SZ number of packets */
             for (total_to_sent = ctx->nb_pkt, nb_drop = 0, to_sent = min(BURST_SZ, total_to_sent);
                 to_sent;
@@ -592,6 +592,14 @@ int remote_thread(void* thread_ctx)
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
     #endif /* DEBUG */
 
+            uint64_t end_time = rte_get_tsc_cycles();
+            uint64_t elapsed_cycles = end_time - start_time;
+
+            // If it took less time than the target interval, wait for the remaining time
+            if (elapsed_cycles < target_interval) {
+                uint64_t wait_cycles = target_interval - elapsed_cycles;
+                rte_delay_us(wait_cycles * 1000000 / rte_get_tsc_hz());
+            }
 
             sem_getvalue(ctx->sem_stop, &sem_value);
             if (sem_value > 0) {
@@ -608,9 +616,13 @@ int remote_thread(void* thread_ctx)
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats;
         struct rte_eth_stats  stats;
-        uint64_t   current_time_ns;
-        uint64_t   old_time_ns = create_timestamp();
-        uint64_t   diff_time_ns;
+
+        uint64_t   diff_cycles;
+        uint64_t   prev_cycles;
+        
+        // uint64_t   current_time_ns;
+        // uint64_t   old_time_ns = create_timestamp();
+        // uint64_t   diff_time_ns;
 
         uint64_t   rx_pkt_delta = 0;
         uint64_t   rx_bytes_delta = 0;
@@ -640,28 +652,33 @@ int remote_thread(void* thread_ctx)
                 sleep(1);
                 continue;
             }
-            current_time_ns = create_timestamp();
-            diff_time_ns = (current_time_ns - old_time_ns);
-            old_time_ns = current_time_ns;
+            diff_cycles = prev_cycles;
+            prev_cycles = rte_get_tsc_cycles();
+            if (diff_cycles > 0)
+                diff_cycles = prev_cycles - diff_cycles;
+
+            // current_time_ns = create_timestamp();
+            // diff_time_ns = (current_time_ns - old_time_ns);
+            // old_time_ns = current_time_ns;
 
             // printf("Diff time (ns): %lu\n", diff_time_ns);
 
             rx_pkt_delta = stats.ipackets - old_stats.ipackets;
-            rx_pkt_rate = (rx_pkt_delta * 1000000000) / diff_time_ns;
+            rx_pkt_rate = (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles;
 
             rx_bytes_delta = stats.ibytes - old_stats.ibytes;
             rx_bit_delta = (rx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
-            rx_bytes_rate = (rx_bytes_delta * 1000000000) / diff_time_ns;
+            rx_bytes_rate = (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles;
 
             tx_pkt_delta = stats.opackets - old_stats.opackets;
-            tx_pkt_rate = (tx_pkt_delta * 1000000000) / diff_time_ns;
+            tx_pkt_rate = (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles;
 
             tx_bytes_delta = stats.obytes - old_stats.obytes;
             tx_bit_delta = (tx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
-            tx_bytes_rate = (tx_bytes_delta * 1000000000) / diff_time_ns;
+            tx_bytes_rate = (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles;
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            gbps = (double)rx_bit_delta/diff_time_ns;
+            gbps = ((double)(rx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000;
             // Print stats with 2 decimal places
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
                     rx_pkt_rate,
@@ -670,7 +687,8 @@ int remote_thread(void* thread_ctx)
             // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
             // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
             // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            gbps = (double)tx_bit_delta/diff_time_ns;
+            gbps = ((double)(tx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000;
+            // gbps = (double)tx_bit_delta/diff_time_ns;
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f\n", 
                     tx_pkt_rate, 
                     tx_bytes_rate,
@@ -798,6 +816,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = 0;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[i].pcap_caches[0]);
+        ctx[i].max_mpps = opts->max_mpps;
         ctx[i].nb_pkt = pcap_cfgs[i].nb_pkts;
         ctx[i].nb_tx_queues = pcap_cfgs[i].tx_queues;
         ctx[i].nb_tx_queues_start = i * pcap_cfgs[i].tx_queues;
@@ -816,6 +835,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
+        ctx[i].max_mpps = opts->max_mpps;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
@@ -832,6 +852,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
+        ctx[i].max_mpps = opts->max_mpps;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;

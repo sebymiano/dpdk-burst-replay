@@ -51,7 +51,7 @@ void print_opts(const struct cmd_opts* opts)
     printf("wait-enter: %s\n", opts->wait ? "yes" : "no");
     printf("write-csv: %s\n", opts->write_csv ? "yes" : "no");
     printf("slow-mode: %s\n", opts->slow_mode ? "yes" : "no");
-    printf("maxbitrate: %u\n", opts->maxbitrate);
+    printf("max_mpps: %u\n", opts->max_mpps);
 
     printf("nb traces: %u\n", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {
@@ -217,11 +217,11 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     opts->timeout = cfg->timeout;
 
     /* Check whether the max bitrate is correct */
-    if (cfg->max_bitrate < 0) {
+    if (cfg->max_mpps < 0) {
         fprintf(stderr, "ERROR: The max bitrate must be greater than 0\n");
         return EXIT_FAILURE;
     }
-    opts->maxbitrate = cfg->max_bitrate;
+    opts->max_mpps = cfg->max_mpps;
 
     cfg->wait_enter ? (opts->wait = 1) : (opts->wait = 0);
     cfg->write_csv ? (opts->write_csv = 1) : (opts->write_csv = 0);

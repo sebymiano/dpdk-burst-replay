@@ -51,7 +51,7 @@ void print_opts(const struct cmd_opts* opts)
     printf("wait-enter: %s\n", opts->wait ? "yes" : "no");
     printf("write-csv: %s\n", opts->write_csv ? "yes" : "no");
     printf("slow-mode: %s\n", opts->slow_mode ? "yes" : "no");
-    printf("max_mpps: %u\n", opts->max_mpps);
+    printf("max_mpps: %.2f\n", opts->max_mpps);
 
     printf("nb traces: %u\n", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {

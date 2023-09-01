@@ -1,6 +1,6 @@
 ---
 traces: 
-  - path: "/home/smiano/dev/caida-equinix/equinix-nyc.dirA.20190117-125910.UTC.anon.64.100000.pcap"
+  - path: "/mydata/equinix-nyc.dirA.20190117-125910.UTC.anon.64.100000.pcap"
     tx_queues: 4
 numacore: 0
 nbruns: 100000000

@@ -57,8 +57,8 @@ int check_pcap_hdr(const int fd)
     if (pcap_h.magic_number != PCAP_MAGIC ||
         pcap_h.version_major != PCAP_MAJOR_VERSION ||
         pcap_h.version_minor != PCAP_MINOR_VERSION) {
-        printf("%s: check failed. magic (0x%.8x), major: %u, minor: %u\n",
-               __FUNCTION__, pcap_h.magic_number,
+        log_error("check failed. magic (0x%.8x), major: %u, minor: %u",
+               pcap_h.magic_number,
                pcap_h.version_major, pcap_h.version_minor);
         return (EPROTO);
     }
@@ -76,7 +76,7 @@ int add_pkt_to_cache(const struct dpdk_ctx* dpdk, const int cache_index,
 
     m = rte_pktmbuf_alloc(dpdk->pktmbuf_pool);
     if (!m) {
-        printf("\n%s rte_pktmbuf_alloc failed. exiting.\n", __FUNCTION__);
+        log_error("rte_pktmbuf_alloc failed. exiting.");
         return (ENOMEM);
     }
     rte_memcpy((char*)m->buf_addr, pkt_buf, pkt_sz);
@@ -115,7 +115,7 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
     /* open wanted file */
     pcap->fd = open(opts->traces[pcap_num].path, O_RDONLY);
     if (pcap->fd < 0) {
-        printf("open of %s failed: %s\n", opts->traces[pcap_num].path, strerror(errno));
+        log_error("open of %s failed: %s", opts->traces[pcap_num].path, strerror(errno));
         return (errno);
     }
     
@@ -131,7 +131,7 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
     if (ret)
         goto preload_pcapErrorInit;
     s.st_size -= sizeof(pcap_hdr_t);
-    printf("preloading %s file (of size: %li bytes)\n", opts->traces[pcap_num].path, s.st_size);
+    log_info("preloading %s file (of size: %li bytes)", opts->traces[pcap_num].path, s.st_size);
     pcap->cap_sz = s.st_size;
 
     /* loop on file to read all saved packets */
@@ -141,11 +141,11 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         if (!nb_read) /* EOF :) */
             break;
         else if (nb_read == (unsigned long)(-1)) {
-            printf("\n%s: read failed (%s)\n", __FUNCTION__, strerror(errno));
+            log_error("%s: read failed (%s)", __FUNCTION__, strerror(errno));
             ret = errno;
             goto preload_pcapError;
         } else if (nb_read != sizeof(pcap_rechdr)) {
-            printf("\nread pkt hdr misssize: %lu / %lu\n",
+            log_error("read pkt hdr misssize: %lu / %lu",
                    nb_read, sizeof(pcap_rechdr));
             goto preload_pcapError;
         }
@@ -153,7 +153,7 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
 
 #ifdef DEBUG
         if (pcap_rechdr.incl_len != pcap_rechdr.orig_len)
-            printf("\npkt %i size: %u/%u\n", cpt,
+            log_info("pkt %i size: %u/%u", cpt,
                    pcap_rechdr.incl_len, pcap_rechdr.orig_len);
 #endif /* DEBUG */
 
@@ -166,11 +166,11 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         /* get packet */
         nb_read = read(pcap->fd, pkt_buf, pcap_rechdr.incl_len);
         if (nb_read == (unsigned long)(-1)) {
-            printf("\n%s: read failed (%s)\n", __FUNCTION__, strerror(errno));
+            log_error("%s: read failed (%s)", __FUNCTION__, strerror(errno));
             ret = errno;
             goto preload_pcapError;
         } else if (nb_read != pcap_rechdr.incl_len) {
-            printf("\nread pkt %i payload misssize: %u / %u\n", cpt,
+            log_error("read pkt %i payload misssize: %u / %u", cpt,
                    (unsigned int)nb_read, pcap_rechdr.incl_len);
             goto preload_pcapError;
         }
@@ -179,7 +179,7 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         /* calcul & print progression every 1024 pkts */
         if ((cpt % 1024) == 0) {
             percent = 100 * (float)total_read / (float)s.st_size;
-            printf("\rfile read at %02.2f%%", percent);
+            log_info("\rfile read at %02.2f%%", percent);
         }
     }
 
@@ -218,7 +218,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
     /* alloc needed pkt caches and bzero them */
     dpdk->pcap_caches = malloc(sizeof(*(dpdk->pcap_caches)) * (needed_pcap_cpus));
     if (!dpdk->pcap_caches) {
-        printf("malloc of pcap_caches failed.\n");
+        log_error("malloc of pcap_caches failed.");
         return (ENOMEM);
     }
     bzero(dpdk->pcap_caches, sizeof(*(dpdk->pcap_caches)) * (needed_pcap_cpus));
@@ -226,7 +226,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
         dpdk->pcap_caches[i].mbufs = malloc(sizeof(*(dpdk->pcap_caches[i].mbufs)) *
                                             pcap->nb_pkts);
         if (dpdk->pcap_caches[i].mbufs == NULL) {
-            fprintf(stderr, "%s: malloc of mbufs failed.\n", __FUNCTION__);
+            log_error("malloc of mbufs failed.");
             return (ENOMEM);
         }
         bzero(dpdk->pcap_caches[i].mbufs,
@@ -235,7 +235,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
 
     /* seek again to the beginning */
     if (lseek(pcap->fd, 0, SEEK_SET) == (off_t)(-1)) {
-        printf("%s: lseek failed (%s)\n", __FUNCTION__, strerror(errno));
+        log_error("lseek failed (%s)", strerror(errno));
         ret = errno;
         goto load_pcapError;
     }
@@ -243,18 +243,18 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
     if (ret)
         goto load_pcapError;
 
-    printf("-> Will cache %i pkts on %i caches.\n", pcap->nb_pkts, needed_pcap_cpus);
+    log_info("-> Will cache %i pkts on %i caches.", pcap->nb_pkts, needed_pcap_cpus);
     for (; cpt < pcap->nb_pkts; cpt++) {
         /* get packet pcap header */
         nb_read = read(pcap->fd, &pcap_rechdr, sizeof(pcap_rechdr));
         if (!nb_read) /* EOF :) */
             break;
         else if (nb_read == (unsigned long)(-1)) {
-            printf("\n%s: read failed (%s)\n", __FUNCTION__, strerror(errno));
+            log_error("read failed (%s)", strerror(errno));
             ret = errno;
             goto load_pcapError;
         } else if (nb_read != sizeof(pcap_rechdr)) {
-            printf("\nread pkt hdr misssize: %u / %lu\n",
+            log_error("read pkt hdr misssize: %u / %lu",
                    (unsigned int)nb_read, sizeof(pcap_rechdr));
             ret = EIO;
             goto load_pcapError;
@@ -264,11 +264,11 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
         /* get packet */
         nb_read = read(pcap->fd, pkt_buf, pcap_rechdr.incl_len);
         if (nb_read == (unsigned long)(-1)) {
-            printf("\n%s: read failed (%s)\n", __FUNCTION__, strerror(errno));
+            log_error("read failed (%s)", strerror(errno));
             ret = errno;
             goto load_pcapError;
         } else if (nb_read != pcap_rechdr.incl_len) {
-            printf("\nread pkt %u payload misssize: %u / %u\n", cpt,
+            log_error("read pkt %u payload misssize: %u / %u", cpt,
                    (unsigned int)nb_read, pcap_rechdr.incl_len);
             ret = EIO;
             goto load_pcapError;
@@ -279,7 +279,7 @@ int load_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap,
         for (i = 0; i < needed_pcap_cpus; i++) {
             ret = add_pkt_to_cache(dpdk, i, pkt_buf, nb_read, cpt, opts->nbruns);
             if (ret) {
-                fprintf(stderr, "\nadd_pkt_to_cache failed on pkt.\n");
+                log_error("add_pkt_to_cache failed on pkt.");
                 goto load_pcapError;
             }
         }

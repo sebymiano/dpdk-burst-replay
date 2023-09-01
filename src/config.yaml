@@ -14,4 +14,5 @@ stats:
   - pci_id: 0000:3b:00.0
     file_name: "result_v1_core1.csv"
 send_port_pci: 0000:3b:00.0
+loglevel: INFO
 

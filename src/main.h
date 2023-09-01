@@ -73,6 +73,7 @@ struct cmd_opts {
     int             nb_stats_file_name;
     char**          stats_name;
     char*           config_file;
+    logs_t          loglevel;
 };
 
 /* struct to store the cpus context */

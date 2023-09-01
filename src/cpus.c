@@ -25,28 +25,24 @@ static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* c
     cpus->numacore = opts->numacore;
     cpus->cpus_to_use = (void*)malloc(sizeof(*(cpus->cpus_to_use)) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1));
     if (cpus->cpus_to_use == NULL) {
-        printf("%s: malloc failed.\n", __FUNCTION__);
+        log_fatal("malloc failed.");
         return (ENOMEM);
     }
-#ifdef DEBUG
-    printf("CPU cores to use:");
-#endif /* DEBUG */
+
+    log_debug("CPU cores to use:");
+
     for (i = 0, cpu_cpt = 0; i < cpus->nb_available_cpus; i++) {
         /* be sure that we get cores on the wanted numa */
         if (cpus->numacore == numa_node_of_cpu(i) || cpus->numacore == -1) {
             cpus->cpus_to_use[cpu_cpt++] = i;
-#ifdef DEBUG
-            printf(" %i", i);
-#endif /* DEBUG */
+            log_debug(" %i", i);
             if (cpu_cpt == cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) /* +1 to keep the first as fake master */
                 break;
         } else cpus->numacores = 2;
     }
-#ifdef DEBUG
-    putchar('\n');
-#endif /* DEBUG */
+
     if (cpu_cpt < cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) {
-        printf("Wanted %i threads on numa %i, but found only %i CPUs.\n",
+        log_error("Wanted %i threads on numa %i, but found only %i CPUs.",
                cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, cpus->numacore, cpu_cpt);
         free(cpus->cpus_to_use);
         return (ENODEV);
@@ -68,9 +64,9 @@ static uint64_t generate_mask(const struct cpus_bindings* cpus, uint8_t number)
     /* generate coremask */
     for (coremask = 0, i = 0; i < number; i++)
         coremask |= (uint64_t)(1ULL << cpus->cpus_to_use[i]);
-#ifdef DEBUG
-    printf("%s for %u cores -> 0x%016lX\n", __FUNCTION__, number, coremask);
-#endif /* DEBUG */
+
+    log_debug("for %u cores -> 0x%016lX", number, coremask);
+
     return (coremask);
 }
 
@@ -85,20 +81,20 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
     /* get the number of available cpus */
     cpus->nb_available_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
 
-    printf("available cpus: %i\n", cpus->nb_available_cpus);
+    log_info("available cpus: %i", cpus->nb_available_cpus);
 
     /* calculate the number of needed cpu cores */
     for (i = 0; opts->pcicards[i]; i++);
     cpus->nb_needed_pcap_cpus = i * opts->nb_traces;
-    printf("-> Needed cpus for PCAP: %u\n", cpus->nb_needed_pcap_cpus);
+    log_info("-> Needed cpus for PCAP: %u", cpus->nb_needed_pcap_cpus);
 
     if (opts->nb_stats > 0) {
         /* calculate the number of needed cpu cores for stats*/
         for (i = 0; opts->stats[i]; i++);
         cpus->nb_needed_stats_cpus = i;
         cpus->nb_needed_recv_cpus = i;
-        printf("-> Needed cpus for stats: %u\n", cpus->nb_needed_stats_cpus);
-        printf("-> Needed cpus for recv: %u\n", cpus->nb_needed_recv_cpus);
+        log_info("-> Needed cpus for stats: %u", cpus->nb_needed_stats_cpus);
+        log_info("-> Needed cpus for recv: %u", cpus->nb_needed_recv_cpus);
     }
 
     /* lookup on cores ID to use */

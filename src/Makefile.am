@@ -6,7 +6,8 @@ dpdk_replay_SOURCES	=	main.c \
 						cpus.c \
 						dpdk.c \
 						pcap.c \
-						utils.c
+						utils.c \
+						log.c
 
 CFLAGS += -Wno-expansion-to-defined
 DPDK_CFLAGS = -O3 $(shell pkg-config --cflags libdpdk)

@@ -158,7 +158,7 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 	/* create the mbuf pool */
 	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, DEFAULT_MBUF_SIZE, socket_id);
 	if (mp == NULL)
-		fprintf(stderr,
+		log_error(
 			"Cannot create mbuf pool (%s) port %d, queue %d, nb_mbufs %d, socket_id %d: %s",
 			name, pid, queue_id, nb_mbufs, socket_id, rte_strerror(rte_errno));
 
@@ -174,7 +174,7 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
     ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
 
     if (ret < 0) {
-        fprintf(stderr, "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d\n", ret, port);
+        log_error( "rte_eth_dev_adjust_nb_rx_tx_desc: err=%d, port=%d", ret, port);
         return (-1);
     }
 
@@ -185,13 +185,13 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
         cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, 8192, 
                                     cpus->numacore, MEMPOOL_CACHE_SIZE);
         if (cpus->q[port][q].rx_mp == NULL) {
-            fprintf(stderr, "Cannot init mbuf pool (port %u)\n", port);
+            log_error("Cannot init mbuf pool (port %u)", port);
             return (-1);
         }
 
         ret = rte_eth_dev_info_get(port, &dev_info);
         if (ret != 0) {
-            fprintf(stderr, "Error during getting device (port %u) info: %s\n", port, strerror(-ret));
+            log_error("Error during getting device (port %u) info: %s", port, strerror(-ret));
             return (-1);
         }
 
@@ -200,7 +200,7 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
 						             &rxq_conf, cpus->q[port][q].rx_mp);
 
         if (ret < 0) {
-            fprintf(stderr, "DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
+            log_error("DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
                     i, strerror(-ret));
             return (ret);
         }
@@ -218,12 +218,12 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
         return (EINVAL);
 
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
-    printf("Configuring port %d with %d rx queues and %d tx queues\n", port, NB_RX_QUEUES, num_tx_queues);
+    log_info("Configuring port %d with %d rx queues and %d tx queues", port, NB_RX_QUEUES, num_tx_queues);
     if (rte_eth_dev_configure(port,
                               NB_RX_QUEUES, /* nb rx queue */
                               num_tx_queues, /* nb tx queue */
                               &ethconf) < 0) {
-        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        log_error("DPDK: RTE ETH Ethernet device configuration failed");
         return (-1);
     }
 
@@ -235,27 +235,27 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
                                      cpus->numacore,
                                      &txconf);
         if (ret < 0) {
-            fprintf(stderr, "DPDK: RTE ETH Ethernet device tx queue %i setup failed: %s",
+            log_error("DPDK: RTE ETH Ethernet device tx queue %i setup failed: %s",
                     i, strerror(-ret));
             return (ret);
         }
     }
 
     if (dpdk_init_rx_queues(cpus, port) != 0) {
-        fprintf(stderr, "DPDK: Error during initialization of RX queues for port %d\n", port);
+        log_error("DPDK: Error during initialization of RX queues for port %d", port);
         return (-1);
     }
 
     /* Start the ethernet device */
     if (rte_eth_dev_start(port) < 0) {
-        fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
+        log_error("DPDK: RTE ETH Ethernet device start failed");
         return (-1);
     }
 
     ret = rte_eth_promiscuous_enable(port);
 
     if (ret) {
-        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        log_error("DPDK: Failed to enable promiscous mode on port: %d", port);
         return (-1);
     }
 
@@ -263,18 +263,18 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
     rte_eth_link_get(port, &eth_link);
     if (eth_link.link_status) {
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
-        printf(" Link up - speed %u Mbps - %s\n",
+        log_info(" Link up - speed %u Mbps - %s",
                eth_link.link_speed,
                (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex\n");
+               "full-duplex" : "half-duplex");
     #else 
-        printf(" Link up - speed %u Mbps - %s\n",
+        log_info(" Link up - speed %u Mbps - %s",
                eth_link.link_speed,
                (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex\n");
+               "full-duplex" : "half-duplex");
     #endif
     } else {
-        printf("Link down\n");
+        log_info("Link down");
     }
 
     return (0);
@@ -295,24 +295,24 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
                               NB_RX_QUEUES, /* nb rx queue */
                               0, /* nb tx queue */
                               &local_port_conf) < 0) {
-        fprintf(stderr, "DPDK: RTE ETH Ethernet device configuration failed\n");
+        log_error("DPDK: RTE ETH Ethernet device configuration failed");
         return (-1);
     }
 
     if (dpdk_init_rx_queues(cpus, port) != 0) {
-        fprintf(stderr, "DPDK: Error during initialization of RX queues for port %d\n", port);
+        log_error("DPDK: Error during initialization of RX queues for port %d", port);
         return (-1);
     }
 
     /* Start the ethernet device */
     if (rte_eth_dev_start(port) < 0) {
-        fprintf(stderr, "DPDK: RTE ETH Ethernet device start failed\n");
+        log_error("DPDK: RTE ETH Ethernet device start failed");
         return (-1);
     }
 
     ret = rte_eth_promiscuous_enable(port);
     if (ret) {
-        fprintf(stderr, "DPDK: Failed to enable promiscous mode on port: %d\n", port);
+        log_error("DPDK: Failed to enable promiscous mode on port: %d", port);
         return (-1);
     }
 
@@ -321,18 +321,18 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
     rte_eth_link_get(port, &eth_link);
     if (eth_link.link_status) {
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
-        printf(" Link up - speed %u Mbps - %s\n",
+        log_info(" Link up - speed %u Mbps - %s",
                eth_link.link_speed,
                (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex\n");
+               "full-duplex" : "half-duplex");
     #else
-        printf(" Link up - speed %u Mbps - %s\n",
+        log_info(" Link up - speed %u Mbps - %s",
                eth_link.link_speed,
                (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex\n");
+               "full-duplex" : "half-duplex");
     #endif /* API_AT_LEAST_AS_RECENT_AS(22, 03) */
     } else {
-        printf("Link down\n");
+        log_info("Link down");
     }
 #endif /* DEBUG */
     return (0);
@@ -360,28 +360,26 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
     /* craft an eal arg list */
     eal_args = fill_eal_args(opts, cpus, &dpdk_cfgs[0], &eal_args_ac);
     if (!eal_args) {
-        printf("%s: fill_eal_args failed.\n", __FUNCTION__);
+        log_error("fill_eal_args failed.");
         return (1);
     }
 
-#ifdef DEBUG
-    puts("EAL ARGS:");
+    log_debug("EAL ARGS:");
     for (int i = 0; eal_args[i]; i++)
-        printf("eal_args[%i] = %s\n", i, eal_args[i]);
-#endif /* DEBUG */
+        log_debug("eal_args[%i] = %s", i, eal_args[i]);
 
     /* DPDK RTE EAL INIT */
     ret = rte_eal_init(eal_args_ac, eal_args);
     free(eal_args);
     if (ret < 0) {
-        printf("%s: rte_eal_init failed (%d)\n", __FUNCTION__, ret);
+        log_error("rte_eal_init failed (%d)", ret);
         return (ret);
     }
 
     /* check that dpdk see enough usable cores */
     if (rte_lcore_count() != cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) {
-        printf("%s error: not enough rte_lcore founds\n", __FUNCTION__);
-        printf("Required: %d, obtained: %d\n", cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, rte_lcore_count());
+        log_error("error: not enough rte_lcore founds");
+        log_error("Required: %d, obtained: %d", cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, rte_lcore_count());
         return (1);
     }
 
@@ -392,13 +390,12 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
     nb_ports = rte_eth_dev_count_avail();
 #endif
     if (nb_ports != opts->nb_total_ports) {
-        printf("%s error: wanted %u NIC ports, found %u\n", __FUNCTION__,
-               opts->nb_total_ports, nb_ports);
+        log_error("error: wanted %u NIC ports, found %u", opts->nb_total_ports, nb_ports);
         return (1);
     }
 
     for (int i = 0; i < opts->nb_traces; i++) {
-        printf("-> Create mempool of %lu mbufs of %lu octs.\n", dpdk_cfgs[i].nb_mbuf, dpdk_cfgs[i].mbuf_sz);
+        log_info("-> Create mempool of %lu mbufs of %lu octs.", dpdk_cfgs[i].nb_mbuf, dpdk_cfgs[i].mbuf_sz);
         char mempool_name[PATH_MAX];
         snprintf(mempool_name, sizeof(mempool_name), "dpdk_replay_mempool_%d", i);
         dpdk_cfgs[i].pktmbuf_pool = rte_mempool_create(mempool_name,
@@ -411,15 +408,15 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
                                             cpus->numacore,
                                             0);
         if (dpdk_cfgs[i].pktmbuf_pool == NULL) {
-            fprintf(stderr, "DPDK: RTE Mempool creation failed (%s)\n",
+            log_error("DPDK: RTE Mempool creation failed (%s)",
                     rte_strerror(rte_errno));
     #if API_AT_LEAST_AS_RECENT_AS(18, 05)
             if (rte_errno == ENOMEM
                 && (dpdk_cfgs[i].nb_mbuf * dpdk_cfgs[i].mbuf_sz /1024/1024) > RTE_MAX_MEM_MB_PER_LIST)
-                fprintf(stderr, "Your version of DPDK was configured to use at maximum"
-                        " %u Mo, or you try to allocate ~%lu Mo.\n"
+                log_error("Your version of DPDK was configured to use at maximum"
+                        " %u Mo, or you try to allocate ~%lu Mo."
                         "Try to recompile DPDK by setting CONFIG_RTE_MAX_MEM_MB_PER_LIST"
-                        " according to your needs.\n", RTE_MAX_MEM_MB_PER_LIST,
+                        " according to your needs.", RTE_MAX_MEM_MB_PER_LIST,
                         dpdk_cfgs[i].nb_mbuf * dpdk_cfgs[i].mbuf_sz /1024/1024);
     #endif /* API_AT_LEAST_AS_RECENT_AS(18, 05) */
             return (rte_errno);
@@ -448,13 +445,13 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {
-            fprintf(stderr, "port %i is not on the good numa id (%i).\n", i, numa);
+            log_error("port %i is not on the good numa id (%i).", i, numa);
             return (1);
         }
         /* init ports */
         if (dpdk_init_port(cpus, i, num_tx_queues))
             return (1);
-        printf("-> NIC port %i ready.\n", i);
+        log_info("-> NIC port %i ready.", i);
     }
 
     // Now if I have a device to read packets from I need to setup the corresponding port
@@ -462,13 +459,13 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
         /* if the port ID isn't on the good numacore, exit */
         numa = rte_eth_dev_socket_id(i);
         if (numa != cpus->numacore) {
-            fprintf(stderr, "port %i is not on the good numa id (%i).\n", i, numa);
+            log_error("port %i is not on the good numa id (%i).", i, numa);
             return (1);
         }
         /* init ports */
         if (dpdk_init_read_port(cpus, i))
             return (1);
-        printf("-> NIC port %i (for read) ready.\n", i);
+        log_info("-> NIC port %i (for read) ready.", i);
     }
 
     return (0);
@@ -504,7 +501,7 @@ uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts) {
     uint64_t cpp       = (pps > 0) ? (rte_get_timer_hz() / pps) : rte_get_timer_hz();
     uint64_t tx_cycles = (cpp * BURST_SZ);
 
-    printf("pps: %.2f, cpp: %lu, tx_cycles: %lu\n", pps, cpp, tx_cycles);
+    log_debug("pps: %.2f, cpp: %lu, tx_cycles: %lu", pps, cpp, tx_cycles);
 
     return tx_cycles;
 }
@@ -516,7 +513,7 @@ uint64_t get_tx_cycles_mbps(const struct pcap_ctx* pcap_cfgs, const struct cmd_o
     uint64_t id_cycles = (wire_size / link_bps) * rte_get_timer_hz();
     uint64_t tx_cycles = (id_cycles * BURST_SZ);
 
-    printf("wire_size: %lu, lk: %.2f, cpp: %lu, tx_cycles: %lu\n", wire_size, link_bps, id_cycles, tx_cycles);
+    log_debug("wire_size: %lu, lk: %.2f, cpp: %lu, tx_cycles: %lu", wire_size, link_bps, id_cycles, tx_cycles);
 
     return tx_cycles;
 }
@@ -544,7 +541,7 @@ int remote_thread(void* thread_ctx)
     /* init semaphore to wait to start the burst */
     ret = sem_wait(ctx->sem);
     if (ret) {
-        fprintf(stderr, "sem_wait failed on thread %i: %s\n",
+        log_error("sem_wait failed on thread %i: %s",
                 thread_id, strerror(ret));
         return (ret);
     }
@@ -552,26 +549,24 @@ int remote_thread(void* thread_ctx)
     /* get the start time */
     ret = clock_gettime(CLOCK_MONOTONIC, &start);
     if (ret) {
-        fprintf(stderr, "clock_gettime failed on start for thread %i: %s\n",
+        log_error("clock_gettime failed on start for thread %i: %s",
                 thread_id, strerror(errno));
         return (errno);
     }
 
-    printf("[Thread %d] RX port id: %d, TX port id: %d\n", thread_id, ctx->rx_port_id, ctx->tx_port_id);
+    log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
     if (ctx->rx_port_id >= 0) {
         is_stats_thread = true;
     } else {
         is_stats_thread = false;
     }
 
-    #ifdef DEBUG
-    printf("[Thread %d] NB TX queues: %i\n", thread_id, ctx->nb_tx_queues);
-    printf("[Thread %d] NB TX queues start: %i\n", thread_id, ctx->nb_tx_queues_start);
-    printf("[Thread %d] NB TX queues end: %i\n", thread_id, ctx->nb_tx_queues_end);
-    #endif
+    log_debug("[Thread %d] NB TX queues: %i", thread_id, ctx->nb_tx_queues);
+    log_debug("[Thread %d] NB TX queues start: %i", thread_id, ctx->nb_tx_queues_start);
+    log_debug("[Thread %d] NB TX queues end: %i", thread_id, ctx->nb_tx_queues_end);
 
     if (!is_stats_thread) {
-        printf("Sending PCAP trace. Wait %d seconds\n", ctx->timeout);
+        log_info("Sending PCAP trace. Wait %d seconds", ctx->timeout);
         mbuf = ctx->pcap_cache->mbufs;
         bool wait_tx_rate = true;
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
@@ -586,7 +581,7 @@ int remote_thread(void* thread_ctx)
             if (wait_tx_rate) {
                 curr_tsc = rte_get_tsc_cycles();
                 tx_next_cycle = curr_tsc;
-                // printf("tx_next_cycle: %ld\n", tx_next_cycle);
+                // printf("tx_next_cycle: %ld", tx_next_cycle);
             }
             /* iterate on pkts for every batch of BURST_SZ number of packets */
             for (total_to_sent = ctx->nb_pkt, nb_drop = 0, to_sent = min(BURST_SZ, total_to_sent);
@@ -606,7 +601,7 @@ int remote_thread(void* thread_ctx)
                         if (curr_tsc < tx_next_cycle) {
                             uint64_t wait_cycles = tx_next_cycle - curr_tsc;
                             uint64_t wait_us = (wait_cycles * 1000000) / rte_get_timer_hz();
-                            // printf("Wait for: %ldus\n", wait_us);
+                            // printf("Wait for: %ldus", wait_us);
                             rte_delay_us(wait_us);
                         }
                     }
@@ -614,7 +609,7 @@ int remote_thread(void* thread_ctx)
                                             tx_queue,
                                             &(mbuf[index + total_sent]),
                                             to_sent - total_sent);
-                    // printf("[Thread %d] Sent %d packets\n", thread_id, nb_sent);
+                    // printf("[Thread %d] Sent %d packets", thread_id, nb_sent);
                     if (retry_tx != retry_tx_cfg &&
                         tx_queue % ctx->nb_tx_queues_end == 0)
                         usleep(100);
@@ -633,11 +628,10 @@ int remote_thread(void* thread_ctx)
                         rte_pktmbuf_free(mbuf[index + i]);
                     }
             }
-    #ifdef DEBUG
             if (unlikely(nb_drop))
-                printf("[thread %i]: on loop %i: sent %i pkts (%i were dropped).\n",
+                log_trace("[thread %i]: on loop %i: sent %i pkts (%i were dropped).",
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
-    #endif /* DEBUG */
+
 
             sem_getvalue(ctx->sem_stop, &sem_value);
             if (sem_value > 0) {
@@ -680,7 +674,7 @@ int remote_thread(void* thread_ctx)
             run_cpt++;
             rte_eth_stats_get(ctx->rx_port_id, &stats);
             if (ret) {
-                printf("Error while reading stats from port: %u\n", ctx->rx_port_id);
+                log_error("Error while reading stats from port: %u", ctx->rx_port_id);
                 sleep(1);
                 continue;
             }
@@ -703,19 +697,19 @@ int remote_thread(void* thread_ctx)
             tx_bit_delta = (tx_bytes_delta + (PKT_OVERHEAD_SIZE * tx_pkt_delta)) * 8;
             tx_bytes_rate =  diff_cycles > 0 ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
-            printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
+            log_info("-> Stats for port: %u\n", ctx->rx_port_id);
             gbps =  (double)(rx_bit_delta)/Billion;
             // Print stats with 2 decimal places
-            printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
+            log_info("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f", 
                     rx_pkt_rate,
                     rx_bytes_rate,
                     gbps);
             gbps =  (double)(tx_bit_delta)/Billion;
-            printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f\n", 
+            log_info("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f", 
                     tx_pkt_rate, 
                     tx_bytes_rate,
                     gbps);
-            printf("\n");
+            log_info("\n");
 
             memcpy(&old_stats, &stats, sizeof(stats));
             if (ctx->csv_ptr) {
@@ -754,14 +748,14 @@ int remote_thread(void* thread_ctx)
     /* get the ends time and calculate the duration */
     ret = clock_gettime(CLOCK_MONOTONIC, &end);
     if (ret) {
-        fprintf(stderr, "clock_gettime failed on finish for thread %i: %s\n",
+        log_error("clock_gettime failed on finish for thread %i: %s",
                 thread_id, strerror(errno));
         return (errno);
     }
     ctx->duration = timespec_diff_to_double(start, end);
-#ifdef DEBUG
-    printf("Exiting thread %i properly.\n", thread_id);
-#endif /* DEBUG */
+
+    log_debug("Exiting thread %i properly.", thread_id);
+
     return (0);
 }
 
@@ -780,7 +774,7 @@ int process_result_stats(const struct cpus_bindings* cpus,
 
     total_pps = total_bitrate = 0;
     total_drop = 0;
-    puts("RESULTS :");
+    log_info("RESULTS :");
     for (i = 0; i < cpus->nb_needed_pcap_cpus; i++) {
         total_pkt_sent = (ctx[i].nb_pkt * opts->nbruns) - ctx[i].total_drop;
         total_pkt_sent_sz = (dpdk_cfgs[i].pcap_sz * opts->nbruns) - ctx[i].total_drop_sz;
@@ -793,13 +787,13 @@ int process_result_stats(const struct cpus_bindings* cpus,
         total_bitrate += bitrate;
         total_pps += pps;
         total_drop += ctx[i].total_drop;
-        printf("[thread %02u]: %f Gbit/s, %f pps on %f sec (%u pkts dropped)\n",
+        log_info("[thread %02u]: %f Gbit/s, %f pps on %f sec (%u pkts dropped)",
                i, bitrate, pps, ctx[i].duration, ctx[i].total_drop);
     }
-    puts("-----");
-    printf("TOTAL        : %.3f Gbit/s. %.3f pps.\n", total_bitrate, total_pps);
+    log_info("-----");
+    log_info("TOTAL        : %.3f Gbit/s. %.3f pps.", total_bitrate, total_pps);
     total_pkt = ctx[0].nb_pkt * opts->nbruns * cpus->nb_needed_pcap_cpus;
-    printf("Total dropped: %u/%u packets (%f%%)\n", total_drop, total_pkt,
+    log_info("Total dropped: %u/%u packets (%f%%)", total_drop, total_pkt,
            (double)(total_drop * 100) / (double)(total_pkt));
     return (0);
 }
@@ -817,12 +811,12 @@ int start_all_threads(const struct cmd_opts* opts,
 
     /* init semaphore for synchronous threads startup */
     if (sem_init(&sem, 0, 0)) {
-        fprintf(stderr, "sem_init failed: %s\n", strerror(errno));
+        log_error("sem_init failed: %s", strerror(errno));
         return (errno);
     }
 
     if (sem_init(&sem_stop, 0, 0)) {
-        fprintf(stderr, "sem_init failed: %s\n", strerror(errno));
+        log_error("sem_init failed: %s", strerror(errno));
         return (errno);
     }
 
@@ -901,7 +895,7 @@ int start_all_threads(const struct cmd_opts* opts,
             FILE *ptr = fopen(file_name, "w");
 
             if (ptr == NULL) {
-                fprintf(stderr, "open file failed: %s\n", file_name);
+                log_error("open file failed: %s", file_name);
                 free(ctx);
                 return -1;
             }
@@ -911,11 +905,11 @@ int start_all_threads(const struct cmd_opts* opts,
 
     /* launch threads, which will wait on the semaphore to start */
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
-        printf("Start thread: %u on core %u\n", i, cpus->cpus_to_use[i + 1]);
+        log_info("Start thread: %u on core %u", i, cpus->cpus_to_use[i + 1]);
         ret = rte_eal_remote_launch(remote_thread, &(ctx[i]),
                                     cpus->cpus_to_use[i + 1]); /* skip fake master core */
         if (ret) {
-            fprintf(stderr, "rte_eal_remote_launch failed: %s\n", strerror(ret));
+            log_error("rte_eal_remote_launch failed: %s", strerror(ret));
             free(ctx);
             return (ret);
         }
@@ -923,7 +917,7 @@ int start_all_threads(const struct cmd_opts* opts,
 
     if (opts->wait) {
         /* wait for ENTER and starts threads */
-        puts("Threads are ready to be launched, please press ENTER to start sending packets.");
+        log_info("Threads are ready to be launched, please press ENTER to start sending packets.");
         for (ret = getchar(); ret != '\n'; ret = getchar()) ;
     } else {
         /*
@@ -936,20 +930,20 @@ int start_all_threads(const struct cmd_opts* opts,
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         ret = sem_post(&sem);
         if (ret) {
-            fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
+            log_error("sem_post failed: %s", strerror(errno));
             free(ctx);
             return (errno);
         }
     }
 
-    printf("Timeout value is: %d\n", opts->timeout);
+    log_info("Timeout value is: %d", opts->timeout);
     if (opts->timeout > 0) {
         sleep(opts->timeout);
 
         for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
             ret = sem_post(&sem_stop);
             if (ret) {
-                fprintf(stderr, "sem_post failed: %s\n", strerror(errno));
+                log_error("sem_post failed: %s", strerror(errno));
                 free(ctx);
                 return (errno);
             }

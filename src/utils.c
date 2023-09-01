@@ -6,6 +6,8 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 
+#include "log.h"
+
 char*   nb_oct_to_human_str(float size)
 {
     char*           disp_unit[] = { "o", "Mo", "Mo", "Go", "To" };
@@ -15,7 +17,7 @@ char*   nb_oct_to_human_str(float size)
     for (i = 0; i < 5; i++, size /= 1024)
         if (size / 1024 < 1) break;
     if (asprintf(&buf, "%.3f %s", size, disp_unit[i]) == -1) {
-        fprintf(stderr, "%s: asprintf failed.\n", __FUNCTION__);
+        log_error("asprintf failed.\n");
         return (NULL);
     }
     return (buf);

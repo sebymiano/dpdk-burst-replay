@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <cyaml/cyaml.h>
 
+#include "log.h"
+
 static const cyaml_config_t config = {
     .log_fn = cyaml_log,            /* Use the default logging function. */
     .mem_fn = cyaml_mem,            /* Use the default memory allocator. */
@@ -40,7 +42,18 @@ typedef struct {
 	stats_t *stats;
 	unsigned stats_count;
 	char *send_port_pci;
+	logs_t loglevel;
 } config_t;
+
+/* Mapping from "month" strings to flag values for schema. */
+static const cyaml_strval_t loglevel_strings[] = {
+	{ "TRACE",   LOG_TRACE },
+	{ "DEBUG",   LOG_DEBUG },
+	{ "INFO",    LOG_INFO  },
+	{ "WARN",    LOG_WARN  },
+	{ "ERROR",   LOG_ERROR },
+	{ "FATAL",   LOG_FATAL },
+};
 
 /******************************************************************************
  * CYAML schema to tell libcyaml about both expected YAML and data structure.
@@ -78,6 +91,7 @@ static const cyaml_schema_field_t top_mapping_schema[] = {
 	CYAML_FIELD_BOOL("slow_mode", CYAML_FLAG_DEFAULT, config_t, slow_mode),
 	CYAML_FIELD_SEQUENCE("stats", CYAML_FLAG_POINTER, config_t, stats, &stats_entry, 0, CYAML_UNLIMITED),
 	CYAML_FIELD_STRING_PTR("send_port_pci", CYAML_FLAG_POINTER, config_t, send_port_pci, 0, CYAML_UNLIMITED),
+	CYAML_FIELD_ENUM("loglevel", CYAML_FLAG_DEFAULT, config_t, loglevel, loglevel_strings, CYAML_ARRAY_LEN(loglevel_strings)),
 	CYAML_FIELD_END
 };
 

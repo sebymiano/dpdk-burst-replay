@@ -17,6 +17,8 @@
 #include "argparse.h"
 #include "main.h"
 
+#include "log.h"
+
 void usage(void)
 {
     puts("dpdk-replay [OPTIONS] PCAP_FILE PORT1[,PORTX...]\n"
@@ -44,32 +46,34 @@ void print_opts(const struct cmd_opts* opts)
 {
     if (!opts)
         return ;
-    puts("--");
-    printf("numacore: %i\n", (int)(opts->numacore));
-    printf("nb runs: %u\n", opts->nbruns);
-    printf("timeout: %u\n", opts->timeout);
-    printf("wait-enter: %s\n", opts->wait ? "yes" : "no");
-    printf("write-csv: %s\n", opts->write_csv ? "yes" : "no");
-    printf("slow-mode: %s\n", opts->slow_mode ? "yes" : "no");
-    printf("max_mpps: %d\n", opts->max_mpps);
+    log_info("--");
+    log_info("numacore: %i", (int)(opts->numacore));
+    log_info("nb runs: %u", opts->nbruns);
+    log_info("timeout: %u", opts->timeout);
+    log_info("wait-enter: %s", opts->wait ? "yes" : "no");
+    log_info("write-csv: %s", opts->write_csv ? "yes" : "no");
+    log_info("slow-mode: %s", opts->slow_mode ? "yes" : "no");
+    log_info("max_mpps: %d", opts->max_mpps);
 
-    printf("nb traces: %u\n", opts->nb_traces);
+    log_info("nb traces: %u", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {
-        printf("trace[%d]: %s\n", i, opts->traces[i].path);
-        printf("tx_queues[%d]: %d\n", i, opts->traces[i].tx_queues);
+        log_info("trace[%d]: %s", i, opts->traces[i].path);
+        log_info("tx_queues[%d]: %d", i, opts->traces[i].tx_queues);
     }
     
-    printf("pci nic ports:");
+    log_info("pci nic ports:");
     for (int i = 0; i < opts->nb_pcicards; i++)
-        printf(" %s", opts->pcicards[i]);
+        log_info(" %s", opts->pcicards[i]);
 
     for (int i = 0; i < opts->nb_stats; i++)
-        printf("\nstats[%d]: %s\n", i, opts->stats[i]);
+        log_info("stats[%d]: %s", i, opts->stats[i]);
 
     for (int i = 0; i < opts->nb_stats_file_name; i++)
-        printf("stats_name[%d]: %s\n", i, opts->stats_name[i]);
+        log_info("stats_name[%d]: %s", i, opts->stats_name[i]);
+
+    log_info("Log level: %s", log_level_string(opts->loglevel));
     
-    puts("\n--");
+    log_info("--");
     return ;
 }
 #endif /* DEBUG */
@@ -173,20 +177,20 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     /* Load input file. */
     err = cyaml_load_file(config_file, &config, &top_schema, (cyaml_data_t **)&cfg, NULL);
     if (err != CYAML_OK) {
-        fprintf(stderr, "ERROR: %s\n", cyaml_strerror(err));
+        log_fatal("ERROR: %s", cyaml_strerror(err));
         return EXIT_FAILURE;
     }
 
     /* Check whether a pcap is set and the send port is set */
     if (cfg->traces_count == 0 || cfg->send_port_pci == NULL) {
-        fprintf(stderr, "ERROR: You must specify at least one pcap file and the send port\n");
+        log_fatal("ERROR: You must specify at least one pcap file and the send port");
         return EXIT_FAILURE;
     }
 
     /* Assign traces to the opts struct */
     opts->traces = malloc(sizeof(trace_t) * cfg->traces_count);
     if (!opts->traces) {
-        fprintf(stderr, "ERROR: Cannot allocate memory for traces\n");
+        log_fatal("ERROR: Cannot allocate memory for traces");
         return EXIT_FAILURE;
     }
     for (int i = 0; i < cfg->traces_count; i++) {
@@ -197,48 +201,48 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
 
     /* Check whether the numa node is correct */
     if (cfg->numacore < 0 || cfg->numacore > 2) {
-        fprintf(stderr, "ERROR: The NUMA node must be between 0 and 2\n");
+        log_fatal("ERROR: The NUMA node must be between 0 and 2");
         return EXIT_FAILURE;
     }
     opts->numacore = cfg->numacore;
 
     /* Check whether the number of runs is correct */
     if (cfg->nbruns <= 0) {
-        fprintf(stderr, "ERROR: The number of runs must be greater than 0\n");
+        log_fatal("ERROR: The number of runs must be greater than 0");
         return EXIT_FAILURE;
     }
     opts->nbruns = cfg->nbruns;
 
     /* Check whether the timeout is correct */
     if (cfg->timeout <= 0) {
-        fprintf(stderr, "ERROR: The timeout must be greater than 0\n");
+        log_fatal("ERROR: The timeout must be greater than 0");
         return EXIT_FAILURE;
     }
     opts->timeout = cfg->timeout;
 
     if (cfg->max_mpps == -1) {
-        fprintf(stderr, "Bitrate (Mpps) is UNLIMITED\n");
+        log_warn("Bitrate (Mpps) is UNLIMITED");
     }
     /* Check whether the max bitrate is correct */
     if (cfg->max_mpps < -1) {
-        fprintf(stderr, "ERROR: The max bitrate (Mpps) must be greater than 0\n");
+        log_fatal("ERROR: The max bitrate (Mpps) must be greater than 0");
         return EXIT_FAILURE;
     }
     opts->max_mpps = cfg->max_mpps;
 
     if (cfg->max_mbps == -1) {
-        fprintf(stderr, "Bitrate (Mbps) is UNLIMITED\n");
+        log_warn("Bitrate (Mbps) is UNLIMITED");
     }
     /* Check whether the max bitrate is correct */
     if (cfg->max_mbps < -1) {
-        fprintf(stderr, "ERROR: The max bitrate (Mbps) must be greater than 0\n");
+        log_fatal("ERROR: The max bitrate (Mbps) must be greater than 0");
         return EXIT_FAILURE;
     }
     opts->max_mbps = cfg->max_mbps;
 
     /* Check whether they are both set */
     if (cfg->max_mbps >= 0 && cfg->max_mpps >= 0) {
-        fprintf(stderr, "You CANNOT set both max_mpps and max_mbps rate control\n");
+        log_fatal("You CANNOT set both max_mpps and max_mbps rate control");
         return EXIT_FAILURE;
     }
 
@@ -251,7 +255,7 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
         opts->stats = malloc(sizeof(char*) * cfg->stats_count);
         opts->stats_name = malloc(sizeof(char*) * cfg->stats_count);
         if (!opts->stats) {
-            fprintf(stderr, "ERROR: Cannot allocate memory for stats ports\n");
+            log_fatal("ERROR: Cannot allocate memory for stats ports");
             return EXIT_FAILURE;
         }
         for (int i = 0; i < cfg->stats_count; i++) {
@@ -268,7 +272,7 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
         unsigned int send_port_count = 1;
         opts->pcicards = malloc(sizeof(char*) * send_port_count);
         if (!opts->pcicards) {
-            fprintf(stderr, "ERROR: Cannot allocate memory for read ports\n");
+            log_fatal("ERROR: Cannot allocate memory for read ports");
             return EXIT_FAILURE;
         }
         for (int i = 0; i < send_port_count; i++) {
@@ -288,9 +292,12 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     }
 
     if (opts->nb_stats_file_name > 0 && opts->nb_stats_file_name != opts->nb_stats) {
-        printf("You should provide the same number of file name and stats ports\n");
+        log_error("You should provide the same number of file name and stats ports");
         return (EPROTO);
     }
+
+    opts->loglevel = cfg->loglevel;
+    log_set_level(cfg->loglevel);
 
     cyaml_free(&config, &top_schema, cfg, 0);
 
@@ -307,7 +314,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
 
     if (ac == 3) {
         if (!strcmp(av[1], "--config")) {
-            printf("Parsing configuration file %s\n", av[2]);
+            log_info("Parsing configuration file %s", av[2]);
             opts->config_file = av[2];
             if (parse_config_file(opts->config_file, opts) != 0) {
                 return (EPROTO);
@@ -321,7 +328,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         return (ENOENT);
 
     for (i = 1; i < ac - 2; i++) {
-        printf("av[%d] = %s\n", i, av[i]);
+        log_debug("av[%d] = %s", i, av[i]);
         /* --numacore numacore */
         if (!strcmp(av[i], "--numacore")) {
             int nc;
@@ -415,7 +422,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
     }
 
     if (opts->nb_stats_file_name > 0 && opts->nb_stats_file_name != opts->nb_stats) {
-        printf("You should provide the same number of file name and stats ports\n");
+        log_error("You should provide the same number of file name and stats ports");
         return (EPROTO);
     }
 
@@ -434,26 +441,26 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     /* # CALCULATE THE NEEDED SIZE FOR MBUF STRUCTS */
     dpdk->mbuf_sz = sizeof(struct rte_mbuf) + pcap->max_pkt_sz;
     dpdk->mbuf_sz += (dpdk->mbuf_sz % (sizeof(int)));
-#ifdef DEBUG
-    puts("Needed paket allocation size = "
+
+    log_debug("Needed paket allocation size = "
          "(size of MBUF) + (size of biggest pcap packet), "
          "rounded up to the next multiple of an integer.");
-    printf("(%lu + %u) + ((%lu + %u) %% %lu) = %lu\n",
+    log_debug("(%lu + %u) + ((%lu + %u) %% %lu) = %lu",
            sizeof(struct rte_mbuf), pcap->max_pkt_sz,
            sizeof(struct rte_mbuf), pcap->max_pkt_sz,
            sizeof(int), dpdk->mbuf_sz);
-#endif /* DEBUG */
-    printf("-> Needed MBUF size: %lu\n", dpdk->mbuf_sz);
+
+    log_debug("-> Needed MBUF size: %lu", dpdk->mbuf_sz);
 
     /* # CALCULATE THE NEEDED NUMBER OF MBUFS */
 #ifdef DPDK_RECOMMANDATIONS
     /* For number of pkts to be allocated on the mempool, DPDK says: */
     /* The optimum size (in terms of memory usage) for a mempool is when n is a
        power of two minus one: n = (2^q - 1).  */
-#ifdef DEBUG
-    puts("Needed number of MBUFS: next power of two minus one of "
+
+    log_debug("Needed number of MBUFS: next power of two minus one of "
          "(nb pkts * nb ports)");
-#endif /* DEBUG */
+
     dpdk->nb_mbuf = get_next_power_of_2(pcap->nb_pkts * opts->nb_pcicards) - 1;
 #else /* !DPDK_RECOMMANDATIONS */
     /*
@@ -469,18 +476,18 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     */
     if (dpdk->nb_mbuf < (MBUF_CACHE_SZ * 2))
         dpdk->nb_mbuf = MBUF_CACHE_SZ * 4;
-    printf("-> Needed number of MBUFS: %lu\n", dpdk->nb_mbuf);
+    log_debug("-> Needed number of MBUFS: %lu", dpdk->nb_mbuf);
 
     /* # CALCULATE THE TOTAL NEEDED MEMORY SIZE  */
     needed_mem = dpdk->mbuf_sz * dpdk->nb_mbuf;
 #ifdef DEBUG
-    puts("Needed memory = (needed mbuf size) * (number of needed mbuf).");
-    printf("%lu * %lu = %.0f bytes\n", dpdk->mbuf_sz, dpdk->nb_mbuf, needed_mem);
+    log_debug("Needed memory = (needed mbuf size) * (number of needed mbuf).");
+    log_debug("%lu * %lu = %.0f bytes", dpdk->mbuf_sz, dpdk->nb_mbuf, needed_mem);
 #endif /* DEBUG */
     hsize = nb_oct_to_human_str(needed_mem);
     if (!hsize)
         return (-1);
-    printf("-> Needed Memory = %s\n", hsize);
+    log_debug("-> Needed Memory = %s", hsize);
     free(hsize);
 
     /* # CALCULATE THE NEEDED NUMBER OF GIGABYTE HUGEPAGES */
@@ -488,7 +495,7 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
         dpdk->pool_sz = needed_mem / (float)(1024*1024*1024) + 1;
     else
         dpdk->pool_sz = needed_mem / (1024*1024*1024);
-    printf("-> Needed Hugepages of 1 Go = %lu\n", dpdk->pool_sz);
+    log_debug("-> Needed Hugepages of 1 Go = %lu", dpdk->pool_sz);
     return (0);
 }
 
@@ -526,13 +533,13 @@ int main(const int ac, char** av)
     */
     pcap_cfgs = malloc(sizeof(*pcap_cfgs) * opts.nb_traces);
     if (!pcap_cfgs) {
-        printf("%s: malloc failed.\n", __FUNCTION__);
+        log_error("malloc failed.");
         return (ENOMEM);
     }
 
     dpdk_cfgs = malloc(sizeof(*dpdk_cfgs) * opts.nb_traces);
     if (!dpdk_cfgs) {
-        printf("%s: malloc failed.\n", __FUNCTION__);
+        log_error("malloc failed.");
         return (ENOMEM);
     }
     
@@ -544,13 +551,13 @@ int main(const int ac, char** av)
         if (ret)
             goto mainExit;
 
-        printf("Checking needed memory for pcap file %s\n", opts.traces[i].path);
+        log_debug("Checking needed memory for pcap file %s", opts.traces[i].path);
         /* calculate needed memory to allocate for mempool */
         ret = check_needed_memory(&opts, &pcap_cfgs[i], &dpdk_cfgs[i]);
         if (ret)
             goto mainExit;
         
-        printf("\n----------------------\n");
+        log_debug("\n----------------------\n");
     }
 
     /*

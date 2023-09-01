@@ -9,10 +9,11 @@ add_executable(dpdk-replay
     pcap.c
     utils.c
     argparse.c
+    log.c
 )
 
 # Add CFLAGS for dpdk-replay
-target_compile_options(dpdk-replay PRIVATE -Wno-expansion-to-defined)
+target_compile_options(dpdk-replay PRIVATE -Wno-expansion-to-defined -DLOG_USE_COLOR)
 
 # Use pkg-config to find and set DPDK_CFLAGS and DPDK_LDFLAGS_STATIC
 find_package(PkgConfig REQUIRED)

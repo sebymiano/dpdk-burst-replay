@@ -107,6 +107,7 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
     long int        total_read;
     float           percent;
     int             ret;
+    uint64_t        pkt_sizes = 0;    
 
     if (!opts || !pcap)
         return (EINVAL);
@@ -160,6 +161,8 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         if (pcap_rechdr.incl_len > pcap->max_pkt_sz)
             pcap->max_pkt_sz = pcap_rechdr.incl_len;
 
+        pkt_sizes += pcap_rechdr.incl_len;
+
         /* get packet */
         nb_read = read(pcap->fd, pkt_buf, pcap_rechdr.incl_len);
         if (nb_read == (unsigned long)(-1)) {
@@ -180,11 +183,13 @@ int preload_pcap(const struct cmd_opts* opts, struct pcap_ctx* pcap, unsigned in
         }
     }
 
+    pcap->avg_pkt_sz = pkt_sizes / cpt;
+
 preload_pcapError:
     percent = 100 * (float)total_read / (float)s.st_size;
     printf("%sfile read at %02.2f%%\n", (ret ? "\n" : "\r"), percent);
-    printf("read %u pkts (for a total of %li bytes). max paket length = %u bytes.\n",
-           cpt, total_read, pcap->max_pkt_sz);
+    printf("read %u pkts (for a total of %li bytes). max paket length = %u bytes. avg packet size = %u\n",
+           cpt, total_read, pcap->max_pkt_sz, pcap->avg_pkt_sz);
 preload_pcapErrorInit:
     if (ret) {
         close(pcap->fd);

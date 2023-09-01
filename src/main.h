@@ -60,7 +60,8 @@ struct cmd_opts {
     int             numacore;
     int             nbruns;
     int             timeout;
-    int           max_mpps;
+    int             max_mpps;
+    int             max_mbps;
     int             wait;
     int             write_csv;
     int             slow_mode;
@@ -127,7 +128,7 @@ struct                  thread_ctx {
     int                 nb_tx_queues;
     int                 nb_tx_queues_start;
     int                 nb_tx_queues_end;
-    int               max_mpps;
+    int                 tx_rate_cycles;
     /* results */
     double              duration;
     unsigned int        total_drop;
@@ -143,6 +144,7 @@ struct                  thread_ctx {
 struct                  pcap_ctx {
     int                 fd;
     unsigned int        nb_pkts;
+    unsigned int        avg_pkt_sz;
     unsigned int        max_pkt_sz;
     size_t              cap_sz;
     unsigned int        tx_queues;

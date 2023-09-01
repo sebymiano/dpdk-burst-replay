@@ -217,14 +217,30 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     opts->timeout = cfg->timeout;
 
     if (cfg->max_mpps == -1) {
-        fprintf(stderr, "Bitrate is UNLIMITED\n");
+        fprintf(stderr, "Bitrate (Mpps) is UNLIMITED\n");
     }
     /* Check whether the max bitrate is correct */
     if (cfg->max_mpps < -1) {
-        fprintf(stderr, "ERROR: The max bitrate must be greater than 0\n");
+        fprintf(stderr, "ERROR: The max bitrate (Mpps) must be greater than 0\n");
         return EXIT_FAILURE;
     }
     opts->max_mpps = cfg->max_mpps;
+
+    if (cfg->max_mbps == -1) {
+        fprintf(stderr, "Bitrate (Mbps) is UNLIMITED\n");
+    }
+    /* Check whether the max bitrate is correct */
+    if (cfg->max_mbps < -1) {
+        fprintf(stderr, "ERROR: The max bitrate (Mbps) must be greater than 0\n");
+        return EXIT_FAILURE;
+    }
+    opts->max_mbps = cfg->max_mbps;
+
+    /* Check whether they are both set */
+    if (cfg->max_mbps >= 0 && cfg->max_mpps >= 0) {
+        fprintf(stderr, "You CANNOT set both max_mpps and max_mbps rate control\n");
+        return EXIT_FAILURE;
+    }
 
     cfg->wait_enter ? (opts->wait = 1) : (opts->wait = 0);
     cfg->write_csv ? (opts->write_csv = 1) : (opts->write_csv = 0);

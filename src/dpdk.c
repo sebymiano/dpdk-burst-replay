@@ -21,6 +21,16 @@
 
 #define IFG_PLUS_PREAMBLE 20
 
+enum {
+    INTER_FRAME_GAP       = 12, /**< in bytes */
+    START_FRAME_DELIMITER = 1,
+    PKT_PREAMBLE_SIZE     = 7, /**< in bytes */
+    PKT_OVERHEAD_SIZE = (INTER_FRAME_GAP + START_FRAME_DELIMITER + PKT_PREAMBLE_SIZE + RTE_ETHER_CRC_LEN),
+};
+
+#define Million            (uint64_t)(1000000UL)
+#define Billion            (uint64_t)(1000000000UL)
+
 static struct rte_eth_conf ethconf = {
 #ifdef RTE_VER_YEAR
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
@@ -202,9 +212,7 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
 int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_queues)
 {
     int                 ret, i;
-#ifdef DEBUG
     struct rte_eth_link eth_link;
-#endif /* DEBUG */
 
     if (!cpus)
         return (EINVAL);
@@ -251,7 +259,6 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
         return (-1);
     }
 
-#ifdef DEBUG
     /* Get link status and display it. */
     rte_eth_link_get(port, &eth_link);
     if (eth_link.link_status) {
@@ -269,7 +276,7 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
     } else {
         printf("Link down\n");
     }
-#endif /* DEBUG */
+
     return (0);
 }
 
@@ -491,6 +498,29 @@ static uint64_t create_timestamp(void)
 	return rte_timespec_to_ns(&now);
 }
 
+/* Calculate the number of cycles to wait between sending bursts of traffic. */
+uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts) {
+    double pps         = opts->max_mpps * Million;
+    uint64_t cpp       = (pps > 0) ? (rte_get_timer_hz() / pps) : rte_get_timer_hz();
+    uint64_t tx_cycles = (cpp * BURST_SZ);
+
+    printf("pps: %.2f, cpp: %lu, tx_cycles: %lu\n", pps, cpp, tx_cycles);
+
+    return tx_cycles;
+}
+
+uint64_t get_tx_cycles_mbps(const struct pcap_ctx* pcap_cfgs, const struct cmd_opts* opts) {
+    uint64_t wire_size = (pcap_cfgs->avg_pkt_sz + PKT_OVERHEAD_SIZE) * 8;
+    
+    double link_bps       = opts->max_mbps * Million;
+    uint64_t id_cycles = (wire_size / link_bps) * rte_get_timer_hz();
+    uint64_t tx_cycles = (id_cycles * BURST_SZ);
+
+    printf("wire_size: %lu, lk: %.2f, cpp: %lu, tx_cycles: %lu\n", wire_size, link_bps, id_cycles, tx_cycles);
+
+    return tx_cycles;
+}
+
 int remote_thread(void* thread_ctx)
 {
     struct thread_ctx*  ctx;
@@ -542,23 +572,21 @@ int remote_thread(void* thread_ctx)
 
     if (!is_stats_thread) {
         printf("Sending PCAP trace. Wait %d seconds\n", ctx->timeout);
-        printf("Max Mpps is: %d\n", ctx->max_mpps);
         mbuf = ctx->pcap_cache->mbufs;
         bool wait_tx_rate = true;
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
-        if (ctx->max_mpps == -1) {
+        if (ctx->tx_rate_cycles == -1) {
             wait_tx_rate = false;
         }
         // Calculate the time interval between packet sends based on desired rate
-        uint64_t target_interval, start_time;
-        if (wait_tx_rate) {
-            target_interval = rte_get_tsc_hz() / (ctx->max_mpps * 1000000);
-        }
+        uint64_t tx_next_cycle, curr_tsc;
 
         /* iterate on each wanted runs */
         for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start, ctx->total_drop = ctx->total_drop_sz = 0; run_cpt; ctx->total_drop += nb_drop, run_cpt--) {
             if (wait_tx_rate) {
-                start_time = rte_get_tsc_cycles();
+                curr_tsc = rte_get_tsc_cycles();
+                tx_next_cycle = curr_tsc;
+                // printf("tx_next_cycle: %ld\n", tx_next_cycle);
             }
             /* iterate on pkts for every batch of BURST_SZ number of packets */
             for (total_to_sent = ctx->nb_pkt, nb_drop = 0, to_sent = min(BURST_SZ, total_to_sent);
@@ -572,6 +600,16 @@ int remote_thread(void* thread_ctx)
                 for (total_sent = 0, retry_tx = retry_tx_cfg;
                     total_sent < to_sent && retry_tx;
                     total_sent += nb_sent, retry_tx--) {
+                    if (wait_tx_rate) {
+                        curr_tsc = rte_get_tsc_cycles();
+                        tx_next_cycle += ctx->tx_rate_cycles;
+                        if (curr_tsc < tx_next_cycle) {
+                            uint64_t wait_cycles = tx_next_cycle - curr_tsc;
+                            uint64_t wait_us = (wait_cycles * 1000000) / rte_get_timer_hz();
+                            // printf("Wait for: %ldus\n", wait_us);
+                            rte_delay_us(wait_us);
+                        }
+                    }
                     nb_sent = rte_eth_tx_burst(ctx->tx_port_id,
                                             tx_queue,
                                             &(mbuf[index + total_sent]),
@@ -601,17 +639,6 @@ int remote_thread(void* thread_ctx)
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
     #endif /* DEBUG */
 
-            if (wait_tx_rate) {
-                uint64_t end_time = rte_get_tsc_cycles();
-                uint64_t elapsed_cycles = end_time - start_time;
-
-                // If it took less time than the target interval, wait for the remaining time
-                if (elapsed_cycles < target_interval) {
-                    uint64_t wait_cycles = target_interval - elapsed_cycles;
-                    rte_delay_us(wait_cycles * 1000000 / rte_get_tsc_hz());
-                }
-            }
-
             sem_getvalue(ctx->sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
@@ -620,8 +647,6 @@ int remote_thread(void* thread_ctx)
             if (ctx->slow_mode) {
                 // TODO: Better control of sending rate in the future
                 sleep(1);
-                // Sleep for 1.5 seconds
-                // usleep(1.5*1000000);
             }
         }
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
@@ -630,10 +655,6 @@ int remote_thread(void* thread_ctx)
 
         uint64_t   diff_cycles;
         uint64_t   prev_cycles = rte_get_tsc_cycles();
-        
-        // uint64_t   current_time_ns;
-        // uint64_t   old_time_ns = create_timestamp();
-        // uint64_t   diff_time_ns;
 
         uint64_t   rx_pkt_delta = 0;
         uint64_t   rx_bytes_delta = 0;
@@ -668,38 +689,28 @@ int remote_thread(void* thread_ctx)
             if (diff_cycles > 0)
                 diff_cycles = prev_cycles - diff_cycles;
 
-            // current_time_ns = create_timestamp();
-            // diff_time_ns = (current_time_ns - old_time_ns);
-            // old_time_ns = current_time_ns;
-
-            // printf("Diff cycles (ns): %lu\n", diff_cycles);
-
             rx_pkt_delta = stats.ipackets - old_stats.ipackets;
             rx_pkt_rate = diff_cycles > 0 ? (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             rx_bytes_delta = stats.ibytes - old_stats.ibytes;
-            rx_bit_delta = (rx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
+            rx_bit_delta = (rx_bytes_delta + (PKT_OVERHEAD_SIZE * rx_pkt_delta)) * 8;
             rx_bytes_rate =  diff_cycles > 0 ? (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_pkt_delta = stats.opackets - old_stats.opackets;
             tx_pkt_rate =  diff_cycles > 0 ? (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_bytes_delta = stats.obytes - old_stats.obytes;
-            tx_bit_delta = (tx_bytes_delta + (IFG_PLUS_PREAMBLE * rx_pkt_delta)) * 8;
+            tx_bit_delta = (tx_bytes_delta + (PKT_OVERHEAD_SIZE * tx_pkt_delta)) * 8;
             tx_bytes_rate =  diff_cycles > 0 ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             printf("-> Stats for port: %u\n\n", ctx->rx_port_id);
-            gbps =  diff_cycles > 0 ? ((double)(rx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000 : 0;
+            gbps =  (double)(rx_bit_delta)/Billion;
             // Print stats with 2 decimal places
             printf("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f\n", 
                     rx_pkt_rate,
                     rx_bytes_rate,
                     gbps);
-            // printf("  RX-nombuf:  %-10"PRIu64"\n", stats.rx_nombuf - old_stats.rx_nombuf);
-            // printf("  Errors:  %-10"PRIu64"\n", stats.ierrors - old_stats.ierrors);
-            // printf("  Missed:  %-10"PRIu64"\n", stats.imissed - old_stats.imissed);
-            gbps =  diff_cycles > 0 ? ((double)(tx_bit_delta * rte_get_tsc_hz()) / diff_cycles)/1000000000 : 0;
-            // gbps = (double)tx_bit_delta/diff_time_ns;
+            gbps =  (double)(tx_bit_delta)/Billion;
             printf("  TX-packets: %-10"PRIu64"  TX-bytes:  %-10"PRIu64"  TX-Gbps: %.2f\n", 
                     tx_pkt_rate, 
                     tx_bytes_rate,
@@ -827,7 +838,6 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = 0;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[i].pcap_caches[0]);
-        ctx[i].max_mpps = opts->max_mpps;
         ctx[i].nb_pkt = pcap_cfgs[i].nb_pkts;
         ctx[i].nb_tx_queues = pcap_cfgs[i].tx_queues;
         ctx[i].nb_tx_queues_start = i * pcap_cfgs[i].tx_queues;
@@ -836,6 +846,13 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
         ctx[i].t_type = PCAP_THREAD;
+        if (opts->max_mpps == -1 && opts->max_mbps == -1) {
+            ctx[i].tx_rate_cycles = -1;
+        } else if (opts->max_mpps > 0) {
+            ctx[i].tx_rate_cycles = get_tx_cycles_mpps(opts);
+        } else {
+            ctx[i].tx_rate_cycles = get_tx_cycles_mbps(&pcap_cfgs[i], opts);
+        }
     }
 
     /* Here I set the context for the recv thread */
@@ -846,7 +863,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
-        ctx[i].max_mpps = opts->max_mpps;
+        ctx[i].tx_rate_cycles = -1;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;
@@ -863,7 +880,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
-        ctx[i].max_mpps = opts->max_mpps;
+        ctx[i].tx_rate_cycles = -1;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
         ctx[i].nb_tx_queues = NB_TX_QUEUES;
         ctx[i].slow_mode = opts->slow_mode;

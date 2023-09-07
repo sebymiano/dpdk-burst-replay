@@ -60,8 +60,8 @@ struct cmd_opts {
     int             numacore;
     int             nbruns;
     int             timeout;
-    int             max_mpps;
-    int             max_mbps;
+    float           max_mpps;
+    float           max_mbps;
     int             wait;
     int             write_csv;
     int             slow_mode;

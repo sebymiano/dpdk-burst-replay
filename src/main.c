@@ -53,7 +53,8 @@ void print_opts(const struct cmd_opts* opts)
     log_info("wait-enter: %s", opts->wait ? "yes" : "no");
     log_info("write-csv: %s", opts->write_csv ? "yes" : "no");
     log_info("slow-mode: %s", opts->slow_mode ? "yes" : "no");
-    log_info("max_mpps: %d", opts->max_mpps);
+    log_info("max_mpps: %.2f", opts->max_mpps);
+    log_info("max_mbps: %.2f", opts->max_mbps);
 
     log_info("nb traces: %u", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {

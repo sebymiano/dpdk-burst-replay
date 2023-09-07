@@ -34,8 +34,8 @@ typedef struct {
 	int numacore;
 	int nbruns;
 	int timeout;
-	int max_mpps;
-	int max_mbps;
+	float max_mpps;
+	float max_mbps;
 	bool write_csv;
 	bool wait_enter;
 	bool slow_mode;
@@ -84,8 +84,8 @@ static const cyaml_schema_field_t top_mapping_schema[] = {
 	CYAML_FIELD_INT("numacore", CYAML_FLAG_DEFAULT, config_t, numacore),
 	CYAML_FIELD_INT("nbruns", CYAML_FLAG_DEFAULT, config_t, nbruns),
 	CYAML_FIELD_INT("timeout", CYAML_FLAG_DEFAULT, config_t, timeout),
-	CYAML_FIELD_INT("max_mpps", CYAML_FLAG_DEFAULT, config_t, max_mpps),
-	CYAML_FIELD_INT("max_mbps", CYAML_FLAG_DEFAULT, config_t, max_mbps),
+	CYAML_FIELD_FLOAT("max_mpps", CYAML_FLAG_DEFAULT, config_t, max_mpps),
+	CYAML_FIELD_FLOAT("max_mbps", CYAML_FLAG_DEFAULT, config_t, max_mbps),
 	CYAML_FIELD_BOOL("write_csv", CYAML_FLAG_DEFAULT, config_t, write_csv),
 	CYAML_FIELD_BOOL("wait_enter", CYAML_FLAG_DEFAULT, config_t, wait_enter),
 	CYAML_FIELD_BOOL("slow_mode", CYAML_FLAG_DEFAULT, config_t, slow_mode),

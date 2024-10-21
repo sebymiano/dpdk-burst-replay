@@ -105,26 +105,33 @@ char** fill_eal_args(const struct cmd_opts* opts, const struct cpus_bindings* cp
         "--file-prefix", strndup(file_prefix, strlen(file_prefix)),
         NULL
     };
+    
     /* fill pci whitelist args */
     eal_args = malloc(sizeof(*eal_args) * sizeof(pre_eal_args));
     if (!eal_args)
         return (NULL);
     memcpy(eal_args, (char**)pre_eal_args, sizeof(pre_eal_args));
     cpt = sizeof(pre_eal_args) / sizeof(*pre_eal_args);
-    for (i = 0; opts->pcicards[i]; i++) {
+
+    log_debug("nb pci cards: %d", opts->nb_pcicards);
+    
+    for (i = 0; i < opts->nb_pcicards; i++) {
         eal_args = myrealloc(eal_args, sizeof(char*) * (cpt + 2));
         if (!eal_args)
             return (NULL);
         // eal_args[cpt - 1] = "--pci-whitelist"; /* overwrite "NULL" */
         eal_args[cpt - 1] = "--allow"; /* overwrite "NULL" */
+        log_debug("Adding PCI card: %s", opts->pcicards[i]);
         eal_args[cpt] = opts->pcicards[i];
         eal_args[cpt + 1] = NULL;
         cpt += 2;
     }
 
+    // log_debug("Fone");
+
     if (opts->nb_stats > 0) {
         // If we setup a device to read packets from
-        for (i = 0; opts->stats[i]; i++) {
+        for (i = 0; i < opts->nb_stats; i++) {
             if (str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
                 // If the device is already in the list of pci cards used for PCAP we don't need this
                 continue;
@@ -356,7 +363,7 @@ int init_dpdk_eal_mempool(const struct cmd_opts* opts,
 #else /* if DPDK >= 17.05 */
     rte_log_set_global_level(RTE_LOG_ERR);
 #endif
-
+    log_debug("Filling eal args");
     /* craft an eal arg list */
     eal_args = fill_eal_args(opts, cpus, &dpdk_cfgs[0], &eal_args_ac);
     if (!eal_args) {

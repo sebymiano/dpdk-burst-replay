@@ -84,13 +84,14 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
     log_info("available cpus: %i", cpus->nb_available_cpus);
 
     /* calculate the number of needed cpu cores */
-    for (i = 0; opts->pcicards[i]; i++);
-    cpus->nb_needed_pcap_cpus = i * opts->nb_traces;
+    // for (i = 0; opts->pcicards[i]; i++);
+    cpus->nb_needed_pcap_cpus = opts->nb_pcicards * opts->nb_traces;
     log_info("-> Needed cpus for PCAP: %u", cpus->nb_needed_pcap_cpus);
 
     if (opts->nb_stats > 0) {
         /* calculate the number of needed cpu cores for stats*/
-        for (i = 0; opts->stats[i]; i++);
+        // for (i = 0; opts->stats[i]; i++);
+        i = opts->nb_stats;
         cpus->nb_needed_stats_cpus = i;
         cpus->nb_needed_recv_cpus = i;
         log_info("-> Needed cpus for stats: %u", cpus->nb_needed_stats_cpus);

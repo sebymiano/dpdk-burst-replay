@@ -260,12 +260,14 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
             return EXIT_FAILURE;
         }
         for (int i = 0; i < cfg->stats_count; i++) {
+            log_info("Checking stats count: %d", i);
             opts->stats[i] = strdup(cfg->stats[i].pci_id);
             opts->stats_name[i] = strdup(cfg->stats[i].file_name);
         }
         opts->nb_stats = cfg->stats_count;
         opts->nb_stats_file_name = cfg->stats_count;
     }
+    log_info("Done checking stats count");
 
     /* Check whether the read ports are correct */
     if (cfg->send_port_pci != NULL) {
@@ -283,8 +285,12 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
         opts->nb_total_ports = send_port_count;
     }
 
+    log_info("Done checking send_port_pci");
+
     if (opts->nb_stats > 0) {
-        for (int i = 0; opts->stats[i]; i++) {
+        log_info("NB stats ports: %d", opts->nb_stats);
+        for (int i = 0; i < opts->nb_stats; i++) {
+            log_debug("Checkig stats for %s", opts->stats[i]);
             if (!str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
                 // If the device is already in the list of pci cards used for PCAP we don't count it
                 opts->nb_total_ports += 1;
@@ -414,7 +420,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
 
     opts->nb_total_ports = opts->nb_pcicards;
     if (opts->nb_stats > 0) {
-        for (int i = 0; opts->stats[i]; i++) {
+        for (int i = 0; i < opts->nb_stats; i++) {
             if (!str_in_list(opts->stats[i], opts->pcicards, opts->nb_pcicards)) {
                 // If the device is already in the list of pci cards used for PCAP we don't count it
                 opts->nb_total_ports += 1;
@@ -569,10 +575,14 @@ int main(const int ac, char** av)
     if (ret)
         goto mainExit;
 
+    log_debug("Let's start to init DPDK EAL");
+
     /* init dpdk eal and mempool */
     ret = init_dpdk_eal_mempool(&opts, &cpus, dpdk_cfgs, opts.nb_traces);
     if (ret)
         goto mainExit;
+
+    log_debug("Done init DPDK EAL");
 
     for (int i = 0; i < opts.nb_traces; i++) {
         /* cache pcap file into mempool */

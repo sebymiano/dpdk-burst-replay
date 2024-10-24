@@ -83,6 +83,7 @@ static struct rte_eth_txconf const txconf = {
 };
 
 pthread_mutex_t log_mutex; // Mutex for logging
+sem_t sem, sem_stop;
 
 void* myrealloc(void* ptr, size_t new_size)
 {
@@ -592,7 +593,7 @@ int remote_thread(void* thread_ctx)
     }
 
     /* init semaphore to wait to start the burst */
-    ret = sem_wait(ctx->sem);
+    ret = sem_wait(&sem);
     if (ret) {
         log_error("sem_wait failed on thread %i: %s",
                 thread_id, strerror(ret));
@@ -674,7 +675,7 @@ int remote_thread(void* thread_ctx)
                     thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
 
 
-            sem_getvalue(ctx->sem_stop, &sem_value);
+            sem_getvalue(&sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
             }
@@ -761,7 +762,7 @@ int remote_thread(void* thread_ctx)
             }
             sleep(1);
             
-            sem_getvalue(ctx->sem_stop, &sem_value);
+            sem_getvalue(&sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
             }
@@ -780,7 +781,7 @@ int remote_thread(void* thread_ctx)
                 rte_pktmbuf_free_bulk(bufs, nb_rx);
             }
 
-            sem_getvalue(ctx->sem_stop, &sem_value);
+            sem_getvalue(&sem_stop, &sem_value);
             if (sem_value > 0) {
                 break;
             }
@@ -859,7 +860,6 @@ int start_all_threads(const struct cmd_opts* opts,
                      unsigned int pcap_num)
 {
     struct thread_ctx* ctx = NULL;
-    sem_t sem, sem_stop;
     unsigned int i;
     int ret;
 
@@ -910,29 +910,31 @@ int start_all_threads(const struct cmd_opts* opts,
     int rx_queues_per_core = opts->nb_rx_queues / opts->nb_rx_cores;
     int rx_remainder_queues = opts->nb_rx_queues % opts->nb_rx_cores;
 
-    log_trace("Setting contex for recv threads");
-    /* Here I set the context for the recv thread */
-    for (int j = 0, i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++, j++) {
-        ctx[i].sem = &sem;
-        ctx[i].sem_stop = &sem_stop;
-        ctx[i].rx_port_id = (i - cpus->nb_needed_pcap_cpus) / cpus->nb_needed_recv_cpus;
-        ctx[i].tx_port_id = -1;
-        ctx[i].nbruns = opts->nbruns;
-        ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
-        ctx[i].tx_rate_cycles = -1;
-        ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
-        ctx[i].nb_tx_queues = 0;
-        ctx[i].slow_mode = opts->slow_mode;
-        ctx[i].timeout = opts->timeout;
-        ctx[i].thread_id = i;
-        ctx[i].t_type = RECV_THREAD;
-        ctx[i].nb_rx_queues = opts->nb_rx_queues;
-        // ctx[i].nb_rx_queues_start = j * (opts->nb_rx_queues / opts->nb_rx_cores);
-        // ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start - 1 + (opts->nb_rx_queues / opts->nb_rx_cores);
-        // Assign an extra queue to the first `remainder_queues` cores
-        int assigned_queues = rx_queues_per_core + (j < rx_remainder_queues ? 1 : 0);
-        ctx[i].nb_rx_queues_start = (j * rx_queues_per_core) + (j < rx_remainder_queues ? j : rx_remainder_queues);
-        ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start + assigned_queues - 1;
+    log_trace("Setting contex for recv threads: %d", opts->nb_stats);
+    for (int k = 0; k < opts->nb_stats; k++) {
+        /* Here I set the context for the recv thread */
+        for (int j = 0, i = cpus->nb_needed_pcap_cpus + (k * opts->nb_rx_cores); j < opts->nb_rx_cores; i++, j++) {
+            ctx[i].sem = &sem;
+            ctx[i].sem_stop = &sem_stop;
+            ctx[i].rx_port_id = k;
+            ctx[i].tx_port_id = -1;
+            ctx[i].nbruns = opts->nbruns;
+            ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
+            ctx[i].tx_rate_cycles = -1;
+            ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
+            ctx[i].nb_tx_queues = 0;
+            ctx[i].slow_mode = opts->slow_mode;
+            ctx[i].timeout = opts->timeout;
+            ctx[i].thread_id = i;
+            ctx[i].t_type = RECV_THREAD;
+            ctx[i].nb_rx_queues = opts->nb_rx_queues;
+            // ctx[i].nb_rx_queues_start = j * (opts->nb_rx_queues / opts->nb_rx_cores);
+            // ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start - 1 + (opts->nb_rx_queues / opts->nb_rx_cores);
+            // Assign an extra queue to the first `remainder_queues` cores
+            int assigned_queues = rx_queues_per_core + (j < rx_remainder_queues ? 1 : 0);
+            ctx[i].nb_rx_queues_start = (j * rx_queues_per_core) + (j < rx_remainder_queues ? j : rx_remainder_queues);
+            ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start + assigned_queues - 1;
+        }
     }
 
     log_trace("Setting context for stats threads");

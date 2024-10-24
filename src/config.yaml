@@ -1,21 +1,11 @@
 ---
 traces: 
   - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
-    tx_queues: 4
+    tx_queues: 8
 numacore: 0
 nbruns: 100000000
 timeout: 10
-max_mpps: 100
+max_mpps: -1
 max_mbps: -1
 write_csv: True
 wait_enter: False
@@ -24,7 +14,7 @@ nb_rx_queues: 32
 nb_rx_cores: 8
 stats:
   - pci_id: 0000:51:00.0
-    file_name: "result_v2_core1.csv"
+    file_name: "result_v1.csv"
 send_port_pci: 0000:51:00.0
 loglevel: TRACE
 

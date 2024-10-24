@@ -55,6 +55,8 @@ void print_opts(const struct cmd_opts* opts)
     log_info("slow-mode: %s", opts->slow_mode ? "yes" : "no");
     log_info("max_mpps: %.2f", opts->max_mpps);
     log_info("max_mbps: %.2f", opts->max_mbps);
+    log_info("nb RX queues: %u", opts->nb_rx_queues);
+    log_info("nb RX cores: %u", opts->nb_rx_cores);
 
     log_info("nb traces: %u", opts->nb_traces);
     for (int i = 0; i < opts->nb_traces; i++) {
@@ -303,6 +305,9 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
         return (EPROTO);
     }
 
+    opts->nb_rx_cores = cfg->nb_rx_cores;
+    opts->nb_rx_queues = cfg->nb_rx_queues;
+
     opts->loglevel = cfg->loglevel;
     log_set_level(cfg->loglevel);
 
@@ -413,7 +418,7 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
         return (ENOMEM);
 
     opts->traces[0].path = strdup(av[i]);
-    opts->traces[0].tx_queues = NB_TX_QUEUES;
+    opts->traces[0].tx_queues = MAX_NB_TX_QUEUES;
     opts->nb_traces = 1;
 
     opts->pcicards = str_to_pcicards_list(opts, av[i + 1]);
@@ -529,9 +534,7 @@ int main(const int ac, char** av)
         return (1);
     }
     
-#ifdef DEBUG
     print_opts(&opts);
-#endif /* DEBUG */
 
     /*
       pre parse the pcap file to get needed informations:
@@ -603,13 +606,22 @@ int main(const int ac, char** av)
 
 mainExit:
     /* cleanup */
-    for (int i = 0; i < opts.nb_traces; i++) {
-        clean_pcap_ctx(&pcap_cfgs[i]);
-        dpdk_cleanup(&dpdk_cfgs[i], &cpus);
+    log_trace("Cleaning up dpdk");
+    /* close ethernet devices */
+    for (int i = 0; i < rte_eth_dev_count_avail(); i++) {
+        /* Check if the device is started */
+        rte_eth_dev_stop(i);
+        rte_eth_dev_close(i);
     }
+    rte_eal_cleanup();
+
+    log_trace("Cleaning up cpus");
     free(dpdk_cfgs);
+    log_trace("Cleaning up pcap");
     free(pcap_cfgs);
-    if (cpus.cpus_to_use)
+    if (cpus.cpus_to_use) {
+        log_trace("Cleaning up cpus_to_use");
         free(cpus.cpus_to_use);
+    }
     return (ret);
 }

@@ -16,13 +16,14 @@
 #define MBUF_CACHE_SZ   32
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
-#define NB_TX_QUEUES    4 /* ^2 needed to make fast modulos % */
-#define NB_RX_QUEUES    8 /* ^2 needed to make fast modulos % */
+#define MAX_NB_TX_QUEUES    4 /* ^2 needed to make fast modulos % */
+#define MAX_NB_RX_QUEUES    128 /* ^2 needed to make fast modulos % */
 #define NB_MAX_PORTS    5
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
 #define MEMPOOL_CACHE_SIZE 256
 #define BURST_SIZE 32
+#define NUM_MBUFS ((64*1024)-1)
 
 #define RTE_TEST_RX_DESC_DEFAULT 1024
 
@@ -51,7 +52,8 @@
       && defined RTE_VER_MONTH && RTE_VER_MONTH >= month) \
      || defined RTE_VER_YEAR && RTE_VER_YEAR >= year)
 
-static uint16_t nb_rxd = RTE_TEST_RX_DESC_DEFAULT;
+static uint16_t nb_rxd = 1024;
+// static uint16_t TX_RING_SIZE = 1024;
 
 /* struct to store the command line args */
 struct cmd_opts {
@@ -71,6 +73,8 @@ struct cmd_opts {
     int             nb_stats;
     int             nb_total_ports;
     int             nb_stats_file_name;
+    unsigned int    nb_rx_queues;
+    unsigned int    nb_rx_cores;
     char**          stats_name;
     char*           config_file;
     logs_t          loglevel;
@@ -90,7 +94,7 @@ struct                  cpus_bindings {
     uint64_t            coremask;
     struct q_info {
         struct rte_mempool *rx_mp;       /**< Pool pointer for port RX mbufs */
-    } q[NB_MAX_PORTS][NB_RX_QUEUES];
+    } q[NB_MAX_PORTS][MAX_NB_RX_QUEUES];
     struct rte_mempool *pktmbuf_pool;
 };
 
@@ -178,7 +182,6 @@ int                 start_all_threads(const struct cmd_opts* opts,
                                      unsigned int pcap_num);
 struct thread_ctx * start_stats_threads(const struct cmd_opts* opts,
                                         const struct cpus_bindings* cpus);
-void                dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus);
 bool                str_in_list(const char *str, char **list, int len);
 
 /* PCAP.C */

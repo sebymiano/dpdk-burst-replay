@@ -45,6 +45,7 @@ static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* c
         log_error("Wanted %i threads on numa %i, but found only %i CPUs.",
                cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, cpus->numacore, cpu_cpt);
         free(cpus->cpus_to_use);
+        cpus->cpus_to_use = NULL;
         return (ENODEV);
     }
     return (0);
@@ -93,7 +94,7 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
         // for (i = 0; opts->stats[i]; i++);
         i = opts->nb_stats;
         cpus->nb_needed_stats_cpus = i;
-        cpus->nb_needed_recv_cpus = i;
+        cpus->nb_needed_recv_cpus = i * opts->nb_rx_cores;
         log_info("-> Needed cpus for stats: %u", cpus->nb_needed_stats_cpus);
         log_info("-> Needed cpus for recv: %u", cpus->nb_needed_recv_cpus);
     }

@@ -34,6 +34,8 @@ typedef struct {
 	int numacore;
 	int nbruns;
 	int timeout;
+	unsigned int nb_rx_queues;
+	unsigned int nb_rx_cores;
 	float max_mpps;
 	float max_mbps;
 	bool write_csv;
@@ -89,6 +91,8 @@ static const cyaml_schema_field_t top_mapping_schema[] = {
 	CYAML_FIELD_BOOL("write_csv", CYAML_FLAG_DEFAULT, config_t, write_csv),
 	CYAML_FIELD_BOOL("wait_enter", CYAML_FLAG_DEFAULT, config_t, wait_enter),
 	CYAML_FIELD_BOOL("slow_mode", CYAML_FLAG_DEFAULT, config_t, slow_mode),
+	CYAML_FIELD_UINT("nb_rx_queues", CYAML_FLAG_DEFAULT, config_t, nb_rx_queues),
+	CYAML_FIELD_UINT("nb_rx_cores", CYAML_FLAG_DEFAULT, config_t, nb_rx_cores),
 	CYAML_FIELD_SEQUENCE("stats", CYAML_FLAG_POINTER, config_t, stats, &stats_entry, 0, CYAML_UNLIMITED),
 	CYAML_FIELD_STRING_PTR("send_port_pci", CYAML_FLAG_POINTER, config_t, send_port_pci, 0, CYAML_UNLIMITED),
 	CYAML_FIELD_ENUM("loglevel", CYAML_FLAG_DEFAULT, config_t, loglevel, loglevel_strings, CYAML_ARRAY_LEN(loglevel_strings)),

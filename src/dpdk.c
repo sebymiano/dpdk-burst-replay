@@ -32,7 +32,7 @@ enum {
 #define Million            (uint64_t)(1000000UL)
 #define Billion            (uint64_t)(1000000000UL)
 
-static struct rte_eth_conf ethconf = {
+static struct rte_eth_conf port_conf_default = {
 #ifdef RTE_VER_YEAR
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
     /* version  > to 2.2.0, last one with old major.minor.patch system */
@@ -51,6 +51,13 @@ static struct rte_eth_conf ethconf = {
         #else
         .mq_mode = ETH_MQ_RX_RSS,
         #endif
+    },
+
+    .rx_adv_conf = {
+        .rss_conf = {
+            .rss_key = NULL,
+            .rss_hf = RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP,
+        },
     },
 
     .txmode = {
@@ -74,6 +81,8 @@ static struct rte_eth_txconf const txconf = {
     },
     .tx_free_thresh = 32,
 };
+
+pthread_mutex_t log_mutex; // Mutex for logging
 
 void* myrealloc(void* ptr, size_t new_size)
 {
@@ -165,7 +174,7 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 	sz = RTE_ALIGN_CEIL(sz + sizeof(struct rte_mempool), 1024);
 
 	/* create the mbuf pool */
-	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, DEFAULT_MBUF_SIZE, socket_id);
+	mp = rte_pktmbuf_pool_create(name, nb_mbufs, cache_size, 0, RTE_MBUF_DEFAULT_BUF_SIZE, socket_id);
 	if (mp == NULL)
 		log_error(
 			"Cannot create mbuf pool (%s) port %d, queue %d, nb_mbufs %d, socket_id %d: %s",
@@ -175,7 +184,7 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 }
 
 
-int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
+int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port, unsigned int num_rx_queues) {
     int                 ret, i;
     struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
 
@@ -189,17 +198,21 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
 
     log_trace("Adjusted nb_rxd=%u, nb_txd=%u for port %d", nb_rxd, nb_txd, port);
 
+    struct rte_mempool *mp = dpdk_mbuf_pool_create("Default RX", port, 0, NUM_MBUFS, 
+                                    cpus->numacore, MEMPOOL_CACHE_SIZE);
+
     /* Then allocate and set up the rx queues for this Ethernet device  */
-    for (int q = 0; q < NB_RX_QUEUES; q++) {
+    for (int q = 0; q < num_rx_queues; q++) {
         struct rte_eth_rxconf rxq_conf;
 
-        cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, 8192, 
-                                    cpus->numacore, MEMPOOL_CACHE_SIZE);
+        // cpus->q[port][q].rx_mp = dpdk_mbuf_pool_create("Default RX", port, q, NUM_MBUFS, 
+        //                             cpus->numacore, MEMPOOL_CACHE_SIZE);
+        cpus->q[port][q].rx_mp = mp;
         if (cpus->q[port][q].rx_mp == NULL) {
             log_error("Cannot init mbuf pool (port %u)", port);
             return (-1);
         }
-
+        
         // rxq_conf = dev_info.default_rxconf;
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
 						             NULL, cpus->q[port][q].rx_mp);
@@ -223,20 +236,46 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
     return 0;
 }
 
-int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_queues)
+int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_rx_queues, unsigned int num_tx_queues)
 {
     int                 ret, i;
     struct rte_eth_link eth_link;
+    struct rte_eth_dev_info dev_info;
+    struct rte_eth_conf port_conf = port_conf_default;
 
     if (!cpus)
         return (EINVAL);
 
+    if (!rte_eth_dev_is_valid_port(port)) {
+        log_error("DPDK: Invalid port %d", port);
+        return (-1);
+    }
+
+    ret = rte_eth_dev_info_get(port, &dev_info);
+    if (ret != 0) {
+        log_error("Error during getting device (port %u) info: %s", port, strerror(-ret));
+        return (-ret);
+    }
+
+    if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE) {
+        port_conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+    }
+
+    port_conf.rx_adv_conf.rss_conf.rss_hf &= dev_info.flow_type_rss_offloads;
+    if (port_conf.rx_adv_conf.rss_conf.rss_hf != port_conf_default.rx_adv_conf.rss_conf.rss_hf) {
+        log_info("Port %u modified RSS hash function based on hardware support,"
+            "requested:%#"PRIx64" configured:%#"PRIx64"\n",
+            port,
+            port_conf_default.rx_adv_conf.rss_conf.rss_hf,
+            port_conf.rx_adv_conf.rss_conf.rss_hf);
+    }
+
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
-    log_info("Configuring port %d with %d rx queues and %d tx queues", port, NB_RX_QUEUES, num_tx_queues);
+    log_info("Configuring port %d with %d rx queues and %d tx queues", port, num_rx_queues, num_tx_queues);
     if (rte_eth_dev_configure(port,
-                              NB_RX_QUEUES, /* nb rx queue */
+                              num_rx_queues, /* nb rx queue */
                               num_tx_queues, /* nb tx queue */
-                              &ethconf) < 0) {
+                              &port_conf) < 0) {
         log_error("DPDK: RTE ETH Ethernet device configuration failed");
         return (-1);
     }
@@ -255,7 +294,7 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
         }
     }
 
-    if (dpdk_init_rx_queues(cpus, port) != 0) {
+    if (dpdk_init_rx_queues(cpus, port, num_rx_queues) != 0) {
         log_error("DPDK: Error during initialization of RX queues for port %d", port);
         return (-1);
     }
@@ -295,25 +334,22 @@ int dpdk_init_port(struct cpus_bindings* cpus, int port, unsigned int num_tx_que
 }
 
 
-int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
+int dpdk_init_read_port(struct cpus_bindings* cpus, int port, unsigned int num_rx_queues, unsigned int num_tx_queues)
 {
     int                 ret, i;
     struct rte_eth_dev_info dev_info;     /**< PCI info + driver name */
-    struct rte_eth_conf local_port_conf = ethconf;
-#ifdef DEBUG
-    struct rte_eth_link eth_link;
-#endif /* DEBUG */
+    struct rte_eth_conf local_port_conf = port_conf_default;
 
     /* Configure for each port (ethernet device), the number of rx queues & tx queues */
     if (rte_eth_dev_configure(port,
-                              NB_RX_QUEUES, /* nb rx queue */
+                              num_rx_queues, /* nb rx queue */
                               0, /* nb tx queue */
                               &local_port_conf) < 0) {
         log_error("DPDK: RTE ETH Ethernet device configuration failed");
         return (-1);
     }
 
-    if (dpdk_init_rx_queues(cpus, port) != 0) {
+    if (dpdk_init_rx_queues(cpus, port, num_rx_queues) != 0) {
         log_error("DPDK: Error during initialization of RX queues for port %d", port);
         return (-1);
     }
@@ -330,25 +366,6 @@ int dpdk_init_read_port(struct cpus_bindings* cpus, int port)
         return (-1);
     }
 
-#ifdef DEBUG
-    /* Get link status and display it. */
-    rte_eth_link_get(port, &eth_link);
-    if (eth_link.link_status) {
-    #if API_AT_LEAST_AS_RECENT_AS(22, 03)
-        log_info(" Link up - speed %u Mbps - %s",
-               eth_link.link_speed,
-               (eth_link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex");
-    #else
-        log_info(" Link up - speed %u Mbps - %s",
-               eth_link.link_speed,
-               (eth_link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-               "full-duplex" : "half-duplex");
-    #endif /* API_AT_LEAST_AS_RECENT_AS(22, 03) */
-    } else {
-        log_info("Link down");
-    }
-#endif /* DEBUG */
     return (0);
 }
 
@@ -450,6 +467,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
         return (EINVAL);
 
     unsigned int num_tx_queues = 0;
+    unsigned int num_rx_queues = opts->nb_rx_queues;
 
     for (i = 0; i < opts->nb_traces; i++) {
         num_tx_queues += opts->traces[i].tx_queues;
@@ -463,7 +481,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
             return (1);
         }
         /* init ports */
-        if (dpdk_init_port(cpus, i, num_tx_queues))
+        if (dpdk_init_port(cpus, i, num_rx_queues, num_tx_queues))
             return (1);
         log_info("-> NIC port %i ready.", i);
     }
@@ -477,7 +495,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus, const struct cmd_opts* opts, uns
             return (1);
         }
         /* init ports */
-        if (dpdk_init_read_port(cpus, i))
+        if (dpdk_init_read_port(cpus, i, num_rx_queues, 0))
             return (1);
         log_info("-> NIC port %i (for read) ready.", i);
     }
@@ -671,7 +689,7 @@ int remote_thread(void* thread_ctx)
             }
         }
     } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
-        struct rte_eth_stats  old_stats;
+        struct rte_eth_stats  old_stats; 
         struct rte_eth_stats  stats;
 
         uint64_t   diff_cycles;
@@ -756,9 +774,10 @@ int remote_thread(void* thread_ctx)
         // We are in the receive thread        
         uint16_t nb_rx;
         for (;;) {
-            struct rte_mbuf *bufs[BURST_SZ];
-            for (int q = ctx->nb_rx_queues_start; q < ctx->nb_rx_queues_end; q++) {
-                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, BURST_SZ);
+            struct rte_mbuf *bufs[64];
+            for (int q = ctx->nb_rx_queues_start; q <= ctx->nb_rx_queues_end; q++) {
+                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, 64);
+                // log_trace("[Thread %d] RX queue %d, received %d packets", thread_id, q, nb_rx);
                 if (unlikely(nb_rx == 0))
                     continue;
 
@@ -845,7 +864,8 @@ int start_all_threads(const struct cmd_opts* opts,
     unsigned int i;
     int ret;
 
-    pthread_mutex_t log_mutex;
+    log_info("Starting threads...");
+
     log_set_lock(log_lock_function, &log_mutex);
 
     /* init semaphore for synchronous threads startup */
@@ -888,6 +908,8 @@ int start_all_threads(const struct cmd_opts* opts,
         }
     }
 
+    int rx_queues_per_core = opts->nb_rx_queues / opts->nb_rx_cores;
+    int rx_remainder_queues = opts->nb_rx_queues % opts->nb_rx_cores;
     /* Here I set the context for the recv thread */
     for (int j = 0, i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++, j++) {
         ctx[i].sem = &sem;
@@ -898,14 +920,18 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
         ctx[i].tx_rate_cycles = -1;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
-        ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].nb_tx_queues = 0;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
         ctx[i].t_type = RECV_THREAD;
-        ctx[i].nb_rx_queues = NB_RX_QUEUES;
-        ctx[i].nb_rx_queues_start = j * (NB_RX_QUEUES / cpus->nb_needed_recv_cpus);
-        ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start - 1 + (NB_RX_QUEUES / cpus->nb_needed_recv_cpus);
+        ctx[i].nb_rx_queues = opts->nb_rx_queues;
+        // ctx[i].nb_rx_queues_start = j * (opts->nb_rx_queues / opts->nb_rx_cores);
+        // ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start - 1 + (opts->nb_rx_queues / opts->nb_rx_cores);
+        // Assign an extra queue to the first `remainder_queues` cores
+        int assigned_queues = rx_queues_per_core + (j < rx_remainder_queues ? 1 : 0);
+        ctx[i].nb_rx_queues_start = (j * rx_queues_per_core) + (j < rx_remainder_queues ? j : rx_remainder_queues);
+        ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start + assigned_queues - 1;
     }
 
     /* Here I set the context for the stats threads */
@@ -918,7 +944,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
         ctx[i].tx_rate_cycles = -1;
         ctx[i].nb_pkt = pcap_cfgs[0].nb_pkts;
-        ctx[i].nb_tx_queues = NB_TX_QUEUES;
+        ctx[i].nb_tx_queues = 0;
         ctx[i].slow_mode = opts->slow_mode;
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
@@ -1000,33 +1026,20 @@ int start_all_threads(const struct cmd_opts* opts,
 
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         if (opts->write_csv && ctx[i].csv_ptr != NULL) {
+            log_info("Closing CSV file for thread %u", i);
             fclose(ctx[i].csv_ptr);
+            ctx[i].csv_ptr = NULL;
         }
     }
 
     /* get results */
     ret = process_result_stats(cpus, dpdk_cfgs, opts, ctx);
+    log_info("Finished processing results.");
+    log_debug("Freeing threads context.");
     free(ctx);
+
+    pthread_mutex_destroy(&log_mutex);
+    sem_destroy(&sem);
+    sem_destroy(&sem_stop);
     return (ret);
-}
-
-void dpdk_cleanup(struct dpdk_ctx* dpdk, struct cpus_bindings* cpus)
-{
-    unsigned int i;
-
-    /* free caches */
-    if (dpdk->pcap_caches) {
-        for (i = 0; i < cpus->nb_needed_pcap_cpus; i++)
-            free(dpdk->pcap_caches[i].mbufs);
-        free(dpdk->pcap_caches);
-    }
-
-    /* close ethernet devices */
-    for (i = 0; i < cpus->nb_needed_pcap_cpus; i++)
-        rte_eth_dev_close(i);
-
-    /* free mempool */
-    if (dpdk->pktmbuf_pool)
-        rte_mempool_free(dpdk->pktmbuf_pool);
-    return ;
 }

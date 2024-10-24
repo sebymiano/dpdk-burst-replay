@@ -17,7 +17,7 @@
 #define TX_QUEUE_SIZE   4096
 #define RX_QUEUE_SIZE   4096
 #define NB_TX_QUEUES    4 /* ^2 needed to make fast modulos % */
-#define NB_RX_QUEUES    1 /* ^2 needed to make fast modulos % */
+#define NB_RX_QUEUES    8 /* ^2 needed to make fast modulos % */
 #define NB_MAX_PORTS    5
 #define BURST_SZ        128
 #define NB_RETRY_TX     (NB_TX_QUEUES * 2)
@@ -129,6 +129,9 @@ struct                  thread_ctx {
     int                 nb_tx_queues;
     int                 nb_tx_queues_start;
     int                 nb_tx_queues_end;
+    int                 nb_rx_queues;
+    int                 nb_rx_queues_start;
+    int                 nb_rx_queues_end;
     int                 tx_rate_cycles;
     /* results */
     double              duration;

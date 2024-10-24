@@ -15,6 +15,7 @@
 #include <rte_log.h>
 #include <rte_errno.h>
 #include <rte_time.h>
+#include <pthread.h>
 
 #include "main.h"
 #include "argparse.h"
@@ -35,9 +36,9 @@ static struct rte_eth_conf ethconf = {
 #ifdef RTE_VER_YEAR
     #if API_AT_LEAST_AS_RECENT_AS(22, 03)
     /* version  > to 2.2.0, last one with old major.minor.patch system */
-    .link_speeds = RTE_ETH_LINK_SPEED_AUTONEG,
+    .link_speeds = RTE_ETH_LINK_SPEED_FIXED,
     #else
-    .link_speeds = ETH_LINK_SPEED_AUTONEG,
+    .link_speeds = ETH_LINK_SPEED_FIXED,
     #endif
 #else
     /* compatibility with older version */
@@ -46,9 +47,9 @@ static struct rte_eth_conf ethconf = {
 #endif
     .rxmode = {
         #if API_AT_LEAST_AS_RECENT_AS(22, 03)
-        .mq_mode = RTE_ETH_MQ_RX_NONE,
+        .mq_mode = RTE_ETH_MQ_RX_RSS,
         #else
-        .mq_mode = ETH_MQ_RX_NONE,
+        .mq_mode = ETH_MQ_RX_RSS,
         #endif
     },
 
@@ -158,6 +159,7 @@ dpdk_mbuf_pool_create(const char *type, uint8_t pid, uint8_t queue_id,
 	uint64_t sz;
 
 	snprintf(name, sizeof(name), "%-12s%u:%u", type, pid, queue_id);
+    log_trace("Creating mbuf pool: %s", name);
 
 	sz = nb_mbufs * (DEFAULT_MBUF_SIZE + sizeof(struct rte_mbuf));
 	sz = RTE_ALIGN_CEIL(sz + sizeof(struct rte_mempool), 1024);
@@ -185,7 +187,9 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
         return (-1);
     }
 
-    /* Then allocate and set up the transmit queues for this Ethernet device  */
+    log_trace("Adjusted nb_rxd=%u, nb_txd=%u for port %d", nb_rxd, nb_txd, port);
+
+    /* Then allocate and set up the rx queues for this Ethernet device  */
     for (int q = 0; q < NB_RX_QUEUES; q++) {
         struct rte_eth_rxconf rxq_conf;
 
@@ -196,15 +200,9 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
             return (-1);
         }
 
-        ret = rte_eth_dev_info_get(port, &dev_info);
-        if (ret != 0) {
-            log_error("Error during getting device (port %u) info: %s", port, strerror(-ret));
-            return (-1);
-        }
-
-        rxq_conf = dev_info.default_rxconf;
+        // rxq_conf = dev_info.default_rxconf;
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore,
-						             &rxq_conf, cpus->q[port][q].rx_mp);
+						             NULL, cpus->q[port][q].rx_mp);
 
         if (ret < 0) {
             log_error("DPDK: RTE ETH Ethernet device RX queue %i setup failed: %s",
@@ -212,6 +210,15 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus, int port) {
             return (ret);
         }
     }
+
+    ret = rte_eth_dev_info_get(port, &dev_info);
+    if (ret != 0) {
+        log_error("Error during getting device (port %u) info: %s", port, strerror(-ret));
+        return (-1);
+    }
+
+    log_trace("Port %d: RX queues %d, max nb_rxd %d", port, dev_info.max_rx_queues, dev_info.rx_desc_lim.nb_max);
+    log_trace("Port %d: TX queues %d, max nb_txd %d", port, dev_info.max_tx_queues, dev_info.tx_desc_lim.nb_max);
 
     return 0;
 }
@@ -545,6 +552,31 @@ int remote_thread(void* thread_ctx)
 
     thread_id = ctx->thread_id;
 
+    if (ctx->rx_port_id >= 0) {
+        is_stats_thread = true;
+    } else {
+        is_stats_thread = false;
+    }
+
+    if (!is_stats_thread) {
+        log_trace("[Thread %d] This thread is a TX thread", thread_id);
+        log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
+        log_debug("[Thread %d] NB TX queues: %i", thread_id, ctx->nb_tx_queues);
+        log_debug("[Thread %d] NB TX queues start: %i", thread_id, ctx->nb_tx_queues_start);
+        log_debug("[Thread %d] NB TX queues end: %i", thread_id, ctx->nb_tx_queues_end);
+
+        log_info("[Thread %d] Sending PCAP trace. Wait %d seconds", thread_id, ctx->timeout);
+    } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
+        log_trace("[Thread %d] This thread is a STATS thread", thread_id);
+        log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
+    } else {
+        log_trace("[Thread %d] This thread is a RX thread", thread_id);
+        log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
+        log_debug("[Thread %d] NB RX queues: %i", thread_id, ctx->nb_rx_queues);
+        log_debug("[Thread %d] NB RX queues start: %i", thread_id, ctx->nb_rx_queues_start);
+        log_debug("[Thread %d] NB RX queues end: %i", thread_id, ctx->nb_rx_queues_end);
+    }
+
     /* init semaphore to wait to start the burst */
     ret = sem_wait(ctx->sem);
     if (ret) {
@@ -561,19 +593,7 @@ int remote_thread(void* thread_ctx)
         return (errno);
     }
 
-    log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
-    if (ctx->rx_port_id >= 0) {
-        is_stats_thread = true;
-    } else {
-        is_stats_thread = false;
-    }
-
-    log_debug("[Thread %d] NB TX queues: %i", thread_id, ctx->nb_tx_queues);
-    log_debug("[Thread %d] NB TX queues start: %i", thread_id, ctx->nb_tx_queues_start);
-    log_debug("[Thread %d] NB TX queues end: %i", thread_id, ctx->nb_tx_queues_end);
-
     if (!is_stats_thread) {
-        log_info("Sending PCAP trace. Wait %d seconds", ctx->timeout);
         mbuf = ctx->pcap_cache->mbufs;
         bool wait_tx_rate = true;
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
@@ -704,7 +724,7 @@ int remote_thread(void* thread_ctx)
             tx_bit_delta = (tx_bytes_delta + (PKT_OVERHEAD_SIZE * tx_pkt_delta)) * 8;
             tx_bytes_rate =  diff_cycles > 0 ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
-            log_info("-> Stats for port: %u\n", ctx->rx_port_id);
+            log_info("[Thread %d]: -> Stats for port: %u\n", thread_id, ctx->rx_port_id);
             gbps =  (double)(rx_bit_delta)/Billion;
             // Print stats with 2 decimal places
             log_info("  RX-packets: %-10"PRIu64"  RX-bytes:  %-10"PRIu64"  RX-Gbps: %.2f", 
@@ -733,12 +753,12 @@ int remote_thread(void* thread_ctx)
             }
         }
     } else {
-        // We are in the receive thread
+        // We are in the receive thread        
         uint16_t nb_rx;
         for (;;) {
-            struct rte_mbuf *bufs[BURST_SIZE];
-            for (int q = 0; q < NB_RX_QUEUES; q++) {
-                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, BURST_SIZE);
+            struct rte_mbuf *bufs[BURST_SZ];
+            for (int q = ctx->nb_rx_queues_start; q < ctx->nb_rx_queues_end; q++) {
+                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, BURST_SZ);
                 if (unlikely(nb_rx == 0))
                     continue;
 
@@ -805,6 +825,15 @@ int process_result_stats(const struct cpus_bindings* cpus,
     return (0);
 }
 
+void log_lock_function(bool lock, void *lock_arg) {
+    if (lock) {
+        pthread_mutex_lock((pthread_mutex_t *) lock_arg);
+    } else {
+        pthread_mutex_unlock((pthread_mutex_t *) lock_arg);
+    }
+}
+
+
 int start_all_threads(const struct cmd_opts* opts,
                      const struct cpus_bindings* cpus,
                      const struct dpdk_ctx* dpdk_cfgs,
@@ -815,6 +844,9 @@ int start_all_threads(const struct cmd_opts* opts,
     sem_t sem, sem_stop;
     unsigned int i;
     int ret;
+
+    pthread_mutex_t log_mutex;
+    log_set_lock(log_lock_function, &log_mutex);
 
     /* init semaphore for synchronous threads startup */
     if (sem_init(&sem, 0, 0)) {
@@ -857,10 +889,10 @@ int start_all_threads(const struct cmd_opts* opts,
     }
 
     /* Here I set the context for the recv thread */
-    for (i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++) {
+    for (int j = 0, i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++, j++) {
         ctx[i].sem = &sem;
         ctx[i].sem_stop = &sem_stop;
-        ctx[i].rx_port_id = i - cpus->nb_needed_pcap_cpus;
+        ctx[i].rx_port_id = (i - cpus->nb_needed_pcap_cpus) / cpus->nb_needed_recv_cpus;
         ctx[i].tx_port_id = -1;
         ctx[i].nbruns = opts->nbruns;
         ctx[i].pcap_cache = &(dpdk_cfgs[0].pcap_caches[0]);
@@ -871,6 +903,9 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
         ctx[i].t_type = RECV_THREAD;
+        ctx[i].nb_rx_queues = NB_RX_QUEUES;
+        ctx[i].nb_rx_queues_start = j * (NB_RX_QUEUES / cpus->nb_needed_recv_cpus);
+        ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start - 1 + (NB_RX_QUEUES / cpus->nb_needed_recv_cpus);
     }
 
     /* Here I set the context for the stats threads */
@@ -912,7 +947,7 @@ int start_all_threads(const struct cmd_opts* opts,
 
     /* launch threads, which will wait on the semaphore to start */
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
-        log_info("Start thread: %u on core %u", i, cpus->cpus_to_use[i + 1]);
+        log_info("[Thread %u] Start on core %u", i, cpus->cpus_to_use[i + 1]);
         ret = rte_eal_remote_launch(remote_thread, &(ctx[i]),
                                     cpus->cpus_to_use[i + 1]); /* skip fake master core */
         if (ret) {
@@ -933,6 +968,9 @@ int start_all_threads(const struct cmd_opts* opts,
         */
         sleep (1);
     }
+
+    log_info("Starting threads, 5 seconds to prepare...");
+    sleep(5); // Wait for threads to be ready
 
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus); i++) {
         ret = sem_post(&sem);

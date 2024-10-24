@@ -559,7 +559,6 @@ int remote_thread(void* thread_ctx)
     int                 ret, thread_id, index, i, run_cpt, retry_tx;
     int                 nb_sent, to_sent, total_to_sent, total_sent;
     int                 nb_drop;
-    bool                is_stats_thread = false;
     int        sem_value;
 
     if (!thread_ctx)
@@ -570,13 +569,7 @@ int remote_thread(void* thread_ctx)
 
     thread_id = ctx->thread_id;
 
-    if (ctx->rx_port_id >= 0) {
-        is_stats_thread = true;
-    } else {
-        is_stats_thread = false;
-    }
-
-    if (!is_stats_thread) {
+    if (ctx->t_type == PCAP_THREAD) {
         log_trace("[Thread %d] This thread is a TX thread", thread_id);
         log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
         log_debug("[Thread %d] NB TX queues: %i", thread_id, ctx->nb_tx_queues);
@@ -584,15 +577,18 @@ int remote_thread(void* thread_ctx)
         log_debug("[Thread %d] NB TX queues end: %i", thread_id, ctx->nb_tx_queues_end);
 
         log_info("[Thread %d] Sending PCAP trace. Wait %d seconds", thread_id, ctx->timeout);
-    } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
+    } else if (ctx->t_type == STATS_THREAD) {
         log_trace("[Thread %d] This thread is a STATS thread", thread_id);
         log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
-    } else {
+    } else if (ctx->t_type == RECV_THREAD) {
         log_trace("[Thread %d] This thread is a RX thread", thread_id);
         log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id, ctx->rx_port_id, ctx->tx_port_id);
         log_debug("[Thread %d] NB RX queues: %i", thread_id, ctx->nb_rx_queues);
         log_debug("[Thread %d] NB RX queues start: %i", thread_id, ctx->nb_rx_queues_start);
         log_debug("[Thread %d] NB RX queues end: %i", thread_id, ctx->nb_rx_queues_end);
+    } else {
+        log_error("Thread type not recognized");
+        return (EINVAL);
     }
 
     /* init semaphore to wait to start the burst */
@@ -611,7 +607,7 @@ int remote_thread(void* thread_ctx)
         return (errno);
     }
 
-    if (!is_stats_thread) {
+    if (ctx->t_type == PCAP_THREAD) {
         mbuf = ctx->pcap_cache->mbufs;
         bool wait_tx_rate = true;
         unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
@@ -688,7 +684,7 @@ int remote_thread(void* thread_ctx)
                 sleep(1);
             }
         }
-    } else if (is_stats_thread && ctx->t_type == STATS_THREAD) {
+    } else if (ctx->t_type == STATS_THREAD) {
         struct rte_eth_stats  old_stats; 
         struct rte_eth_stats  stats;
 
@@ -770,7 +766,7 @@ int remote_thread(void* thread_ctx)
                 break;
             }
         }
-    } else {
+    } else if (ctx->t_type == RECV_THREAD) {
         // We are in the receive thread        
         uint16_t nb_rx;
         for (;;) {
@@ -789,6 +785,9 @@ int remote_thread(void* thread_ctx)
                 break;
             }
         }
+    } else {
+        log_error("Thread type not recognized");
+        return (EINVAL);
     }
 
     /* get the ends time and calculate the duration */
@@ -910,6 +909,8 @@ int start_all_threads(const struct cmd_opts* opts,
 
     int rx_queues_per_core = opts->nb_rx_queues / opts->nb_rx_cores;
     int rx_remainder_queues = opts->nb_rx_queues % opts->nb_rx_cores;
+
+    log_trace("Setting contex for recv threads");
     /* Here I set the context for the recv thread */
     for (int j = 0, i = cpus->nb_needed_pcap_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i++, j++) {
         ctx[i].sem = &sem;
@@ -934,6 +935,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].nb_rx_queues_end = ctx[i].nb_rx_queues_start + assigned_queues - 1;
     }
 
+    log_trace("Setting context for stats threads");
     /* Here I set the context for the stats threads */
     for (i = cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus; i < cpus->nb_needed_pcap_cpus + cpus->nb_needed_recv_cpus + cpus->nb_needed_stats_cpus; i++) {
         ctx[i].sem = &sem;
@@ -955,11 +957,12 @@ int start_all_threads(const struct cmd_opts* opts,
         if (opts->write_csv) {
             char file_name[PATH_MAX];
             if (opts->nb_stats_file_name > 0) {
+                log_trace("Using custom stats file name for port %u: %s", port_no, opts->stats_name[port_no]);
                 strncpy(file_name, opts->stats_name[port_no], PATH_MAX);
             } else {
                 snprintf(file_name, PATH_MAX, "results_port_%u.csv", port_no);
             }
-
+            log_trace("Opening CSV file for thread %u: %s", i, file_name);
             FILE *ptr = fopen(file_name, "w");
 
             if (ptr == NULL) {

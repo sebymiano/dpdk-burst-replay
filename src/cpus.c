@@ -93,7 +93,7 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
         /* calculate the number of needed cpu cores for stats*/
         // for (i = 0; opts->stats[i]; i++);
         i = opts->nb_stats;
-        cpus->nb_needed_stats_cpus = i;
+        cpus->nb_needed_stats_cpus = opts->nb_total_ports;
         cpus->nb_needed_recv_cpus = i * opts->nb_rx_cores;
         log_info("-> Needed cpus for stats: %u", cpus->nb_needed_stats_cpus);
         log_info("-> Needed cpus for recv: %u", cpus->nb_needed_recv_cpus);

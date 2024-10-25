@@ -9,6 +9,7 @@
 #include <semaphore.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <pthread.h>
 
 #include "config_yaml.h"
 

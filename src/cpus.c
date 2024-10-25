@@ -3,27 +3,30 @@
   Copyright 2018 Jonathan Ribas, FraudBuster. All rights reserved.
 */
 
-#include <strings.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <errno.h>
 #include <numa.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include "main.h"
 
-static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* cpus)
-{
-    unsigned int        i;
-    unsigned int        cpu_cpt;
+static int find_cpus_to_use(const struct cmd_opts* opts,
+                            struct cpus_bindings* cpus) {
+    unsigned int i;
+    unsigned int cpu_cpt;
 
     if (!opts || !cpus)
         return (EINVAL);
 
     cpus->numacores = 1;
     cpus->numacore = opts->numacore;
-    cpus->cpus_to_use = (void*)malloc(sizeof(*(cpus->cpus_to_use)) * (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1));
+    cpus->cpus_to_use =
+        (void*)malloc(sizeof(*(cpus->cpus_to_use)) *
+                      (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus +
+                       cpus->nb_needed_recv_cpus + 1));
     if (cpus->cpus_to_use == NULL) {
         log_fatal("malloc failed.");
         return (ENOMEM);
@@ -36,14 +39,21 @@ static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* c
         if (cpus->numacore == numa_node_of_cpu(i) || cpus->numacore == -1) {
             cpus->cpus_to_use[cpu_cpt++] = i;
             log_debug(" %i", i);
-            if (cpu_cpt == cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) /* +1 to keep the first as fake master */
+            if (cpu_cpt == cpus->nb_needed_pcap_cpus +
+                               cpus->nb_needed_stats_cpus +
+                               cpus->nb_needed_recv_cpus +
+                               1) /* +1 to keep the first as fake master */
                 break;
-        } else cpus->numacores = 2;
+        } else
+            cpus->numacores = 2;
     }
 
-    if (cpu_cpt < cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1) {
+    if (cpu_cpt < cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus +
+                      cpus->nb_needed_recv_cpus + 1) {
         log_error("Wanted %i threads on numa %i, but found only %i CPUs.",
-               cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1, cpus->numacore, cpu_cpt);
+                  cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus +
+                      cpus->nb_needed_recv_cpus + 1,
+                  cpus->numacore, cpu_cpt);
         free(cpus->cpus_to_use);
         cpus->cpus_to_use = NULL;
         return (ENODEV);
@@ -51,15 +61,15 @@ static int find_cpus_to_use(const struct cmd_opts* opts, struct cpus_bindings* c
     return (0);
 }
 
-static uint64_t generate_mask(const struct cpus_bindings* cpus, uint8_t number)
-{
-    int      i;
+static uint64_t generate_mask(const struct cpus_bindings* cpus,
+                              uint8_t number) {
+    int i;
     uint64_t coremask;
 
     if (!cpus)
         return (EINVAL);
 
-    if ((0 == number) || ( 64 < number)) /* out of bounds */
+    if ((0 == number) || (64 < number)) /* out of bounds */
         return (0);
 
     /* generate coremask */
@@ -71,8 +81,7 @@ static uint64_t generate_mask(const struct cpus_bindings* cpus, uint8_t number)
     return (coremask);
 }
 
-int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
-{
+int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus) {
     int ret;
     int i;
 
@@ -105,8 +114,11 @@ int init_cpus(const struct cmd_opts* opts, struct cpus_bindings* cpus)
         return (ret);
 
     /* generate coremask of selected cpu cores for dpdk init */
-    /* NOTES: get an extra one to not use the 0/master one. TODO: do better :) */
-    cpus->coremask = generate_mask(cpus, cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus + cpus->nb_needed_recv_cpus + 1);
+    /* NOTES: get an extra one to not use the 0/master one. TODO: do better :)
+     */
+    cpus->coremask = generate_mask(cpus, cpus->nb_needed_pcap_cpus +
+                                             cpus->nb_needed_stats_cpus +
+                                             cpus->nb_needed_recv_cpus + 1);
     if (!cpus->coremask)
         return (EINVAL);
     return (0);

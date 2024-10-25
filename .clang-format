@@ -1,0 +1,11 @@
+---
+BasedOnStyle: Chromium
+IndentWidth: 4
+
+IncludeCategories:
+  - Regex:           '<.*>'
+    Priority:        5
+  - Regex:           '^"bpf_maps'
+    Priority:        20
+  - Regex:           '.*'
+    Priority:        10

@@ -5,26 +5,22 @@
  * Use of this source code is governed by a MIT-style license that can be found
  * in the LICENSE file.
  */
+#include "argparse.h"
+#include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <errno.h>
-#include "argparse.h"
 
 #define OPT_UNSET 1
-#define OPT_LONG  (1 << 1)
+#define OPT_LONG (1 << 1)
 
-static const char *
-prefix_skip(const char *str, const char *prefix)
-{
+static const char* prefix_skip(const char* str, const char* prefix) {
     size_t len = strlen(prefix);
     return strncmp(str, prefix, len) ? NULL : str + len;
 }
 
-static int
-prefix_cmp(const char *str, const char *prefix)
-{
+static int prefix_cmp(const char* str, const char* prefix) {
     for (;; str++, prefix++)
         if (!*prefix) {
             return 0;
@@ -33,10 +29,10 @@ prefix_cmp(const char *str, const char *prefix)
         }
 }
 
-static void
-argparse_error(struct argparse *self, const struct argparse_option *opt,
-               const char *reason, int flags)
-{
+static void argparse_error(struct argparse* self,
+                           const struct argparse_option* opt,
+                           const char* reason,
+                           int flags) {
     (void)self;
     if (flags & OPT_LONG) {
         fprintf(stderr, "error: option `--%s` %s\n", opt->long_name, reason);
@@ -46,76 +42,77 @@ argparse_error(struct argparse *self, const struct argparse_option *opt,
     exit(EXIT_FAILURE);
 }
 
-static int
-argparse_getvalue(struct argparse *self, const struct argparse_option *opt,
-                  int flags)
-{
-    const char *s = NULL;
+static int argparse_getvalue(struct argparse* self,
+                             const struct argparse_option* opt,
+                             int flags) {
+    const char* s = NULL;
     if (!opt->value)
         goto skipped;
     switch (opt->type) {
-    case ARGPARSE_OPT_BOOLEAN:
-        if (flags & OPT_UNSET) {
-            *(int *)opt->value = *(int *)opt->value - 1;
-        } else {
-            *(int *)opt->value = *(int *)opt->value + 1;
-        }
-        if (*(int *)opt->value < 0) {
-            *(int *)opt->value = 0;
-        }
-        break;
-    case ARGPARSE_OPT_BIT:
-        if (flags & OPT_UNSET) {
-            *(int *)opt->value &= ~opt->data;
-        } else {
-            *(int *)opt->value |= opt->data;
-        }
-        break;
-    case ARGPARSE_OPT_STRING:
-        if (self->optvalue) {
-            *(const char **)opt->value = self->optvalue;
-            self->optvalue             = NULL;
-        } else if (self->argc > 1) {
-            self->argc--;
-            *(const char **)opt->value = *++self->argv;
-        } else {
-            argparse_error(self, opt, "requires a value", flags);
-        }
-        break;
-    case ARGPARSE_OPT_INTEGER:
-        errno = 0;
-        if (self->optvalue) {
-            *(int *)opt->value = strtol(self->optvalue, (char **)&s, 0);
-            self->optvalue     = NULL;
-        } else if (self->argc > 1) {
-            self->argc--;
-            *(int *)opt->value = strtol(*++self->argv, (char **)&s, 0);
-        } else {
-            argparse_error(self, opt, "requires a value", flags);
-        }
-        if (errno == ERANGE)
-            argparse_error(self, opt, "numerical result out of range", flags);
-        if (s[0] != '\0') // no digits or contains invalid characters
-            argparse_error(self, opt, "expects an integer value", flags);
-        break;
-    case ARGPARSE_OPT_FLOAT:
-        errno = 0;
-        if (self->optvalue) {
-            *(float *)opt->value = strtof(self->optvalue, (char **)&s);
-            self->optvalue       = NULL;
-        } else if (self->argc > 1) {
-            self->argc--;
-            *(float *)opt->value = strtof(*++self->argv, (char **)&s);
-        } else {
-            argparse_error(self, opt, "requires a value", flags);
-        }
-        if (errno == ERANGE)
-            argparse_error(self, opt, "numerical result out of range", flags);
-        if (s[0] != '\0') // no digits or contains invalid characters
-            argparse_error(self, opt, "expects a numerical value", flags);
-        break;
-    default:
-        assert(0);
+        case ARGPARSE_OPT_BOOLEAN:
+            if (flags & OPT_UNSET) {
+                *(int*)opt->value = *(int*)opt->value - 1;
+            } else {
+                *(int*)opt->value = *(int*)opt->value + 1;
+            }
+            if (*(int*)opt->value < 0) {
+                *(int*)opt->value = 0;
+            }
+            break;
+        case ARGPARSE_OPT_BIT:
+            if (flags & OPT_UNSET) {
+                *(int*)opt->value &= ~opt->data;
+            } else {
+                *(int*)opt->value |= opt->data;
+            }
+            break;
+        case ARGPARSE_OPT_STRING:
+            if (self->optvalue) {
+                *(const char**)opt->value = self->optvalue;
+                self->optvalue = NULL;
+            } else if (self->argc > 1) {
+                self->argc--;
+                *(const char**)opt->value = *++self->argv;
+            } else {
+                argparse_error(self, opt, "requires a value", flags);
+            }
+            break;
+        case ARGPARSE_OPT_INTEGER:
+            errno = 0;
+            if (self->optvalue) {
+                *(int*)opt->value = strtol(self->optvalue, (char**)&s, 0);
+                self->optvalue = NULL;
+            } else if (self->argc > 1) {
+                self->argc--;
+                *(int*)opt->value = strtol(*++self->argv, (char**)&s, 0);
+            } else {
+                argparse_error(self, opt, "requires a value", flags);
+            }
+            if (errno == ERANGE)
+                argparse_error(self, opt, "numerical result out of range",
+                               flags);
+            if (s[0] != '\0')  // no digits or contains invalid characters
+                argparse_error(self, opt, "expects an integer value", flags);
+            break;
+        case ARGPARSE_OPT_FLOAT:
+            errno = 0;
+            if (self->optvalue) {
+                *(float*)opt->value = strtof(self->optvalue, (char**)&s);
+                self->optvalue = NULL;
+            } else if (self->argc > 1) {
+                self->argc--;
+                *(float*)opt->value = strtof(*++self->argv, (char**)&s);
+            } else {
+                argparse_error(self, opt, "requires a value", flags);
+            }
+            if (errno == ERANGE)
+                argparse_error(self, opt, "numerical result out of range",
+                               flags);
+            if (s[0] != '\0')  // no digits or contains invalid characters
+                argparse_error(self, opt, "expects a numerical value", flags);
+            break;
+        default:
+            assert(0);
     }
 
 skipped:
@@ -125,9 +122,7 @@ skipped:
     return 0;
 }
 
-static void
-argparse_options_check(const struct argparse_option *options)
-{
+static void argparse_options_check(const struct argparse_option* options) {
     for (; options->type != ARGPARSE_OPT_END; options++) {
         switch (options->type) {
             case ARGPARSE_OPT_END:
@@ -145,9 +140,8 @@ argparse_options_check(const struct argparse_option *options)
     }
 }
 
-static int
-argparse_short_opt(struct argparse *self, const struct argparse_option *options)
-{
+static int argparse_short_opt(struct argparse* self,
+                              const struct argparse_option* options) {
     for (; options->type != ARGPARSE_OPT_END; options++) {
         if (options->short_name == *self->optvalue) {
             self->optvalue = self->optvalue[1] ? self->optvalue + 1 : NULL;
@@ -157,11 +151,10 @@ argparse_short_opt(struct argparse *self, const struct argparse_option *options)
     return -2;
 }
 
-static int
-argparse_long_opt(struct argparse *self, const struct argparse_option *options)
-{
+static int argparse_long_opt(struct argparse* self,
+                             const struct argparse_option* options) {
     for (; options->type != ARGPARSE_OPT_END; options++) {
-        const char *rest;
+        const char* rest;
         int opt_flags = 0;
         if (!options->long_name)
             continue;
@@ -173,8 +166,8 @@ argparse_long_opt(struct argparse *self, const struct argparse_option *options)
                 continue;
             }
             // only OPT_BOOLEAN/OPT_BIT supports negation
-            if (options->type != ARGPARSE_OPT_BOOLEAN && options->type !=
-                ARGPARSE_OPT_BIT) {
+            if (options->type != ARGPARSE_OPT_BOOLEAN &&
+                options->type != ARGPARSE_OPT_BIT) {
                 continue;
             }
 
@@ -196,38 +189,35 @@ argparse_long_opt(struct argparse *self, const struct argparse_option *options)
     return -2;
 }
 
-int
-argparse_init(struct argparse *self, struct argparse_option *options,
-              const char *const *usages, int flags)
-{
+int argparse_init(struct argparse* self,
+                  struct argparse_option* options,
+                  const char* const* usages,
+                  int flags) {
     memset(self, 0, sizeof(*self));
-    self->options     = options;
-    self->usages      = usages;
-    self->flags       = flags;
+    self->options = options;
+    self->usages = usages;
+    self->flags = flags;
     self->description = NULL;
-    self->epilog      = NULL;
+    self->epilog = NULL;
     return 0;
 }
 
-void
-argparse_describe(struct argparse *self, const char *description,
-                  const char *epilog)
-{
+void argparse_describe(struct argparse* self,
+                       const char* description,
+                       const char* epilog) {
     self->description = description;
-    self->epilog      = epilog;
+    self->epilog = epilog;
 }
 
-int
-argparse_parse(struct argparse *self, int argc, const char **argv)
-{
+int argparse_parse(struct argparse* self, int argc, const char** argv) {
     self->argc = argc - 1;
     self->argv = argv + 1;
-    self->out  = argv;
+    self->out = argv;
 
     argparse_options_check(self->options);
 
     for (; self->argc; self->argc--, self->argv++) {
-        const char *arg = self->argv[0];
+        const char* arg = self->argv[0];
         if (arg[0] != '-' || !arg[1]) {
             if (self->flags & ARGPARSE_STOP_AT_NON_OPTION) {
                 goto end;
@@ -240,17 +230,17 @@ argparse_parse(struct argparse *self, int argc, const char **argv)
         if (arg[1] != '-') {
             self->optvalue = arg + 1;
             switch (argparse_short_opt(self, self->options)) {
-            case -1:
-                break;
-            case -2:
-                goto unknown;
-            }
-            while (self->optvalue) {
-                switch (argparse_short_opt(self, self->options)) {
                 case -1:
                     break;
                 case -2:
                     goto unknown;
+            }
+            while (self->optvalue) {
+                switch (argparse_short_opt(self, self->options)) {
+                    case -1:
+                        break;
+                    case -2:
+                        goto unknown;
                 }
             }
             continue;
@@ -263,14 +253,14 @@ argparse_parse(struct argparse *self, int argc, const char **argv)
         }
         // long option
         switch (argparse_long_opt(self, self->options)) {
-        case -1:
-            break;
-        case -2:
-            goto unknown;
+            case -1:
+                break;
+            case -2:
+                goto unknown;
         }
         continue;
 
-unknown:
+    unknown:
         fprintf(stderr, "error: unknown option `%s`\n", self->argv[0]);
         argparse_usage(self);
         if (!(self->flags & ARGPARSE_IGNORE_UNKNOWN_ARGS)) {
@@ -286,9 +276,7 @@ end:
     return self->cpidx + self->argc;
 }
 
-void
-argparse_usage(struct argparse *self)
-{
+void argparse_usage(struct argparse* self) {
     if (self->usages) {
         fprintf(stdout, "Usage: %s\n", *self->usages++);
         while (*self->usages && **self->usages)
@@ -303,7 +291,7 @@ argparse_usage(struct argparse *self)
 
     fputc('\n', stdout);
 
-    const struct argparse_option *options;
+    const struct argparse_option* options;
 
     // figure out best width
     size_t usage_opts_width = 0;
@@ -315,7 +303,7 @@ argparse_usage(struct argparse *self)
             len += 2;
         }
         if ((options)->short_name && (options)->long_name) {
-            len += 2;           // separator ", "
+            len += 2;  // separator ", "
         }
         if ((options)->long_name) {
             len += strlen((options)->long_name) + 2;
@@ -333,7 +321,7 @@ argparse_usage(struct argparse *self)
             usage_opts_width = len;
         }
     }
-    usage_opts_width += 4;      // 4 spaces prefix
+    usage_opts_width += 4;  // 4 spaces prefix
 
     options = self->options;
     for (; options->type != ARGPARSE_OPT_END; options++) {
@@ -376,19 +364,15 @@ argparse_usage(struct argparse *self)
         fprintf(stdout, "%s\n", self->epilog);
 }
 
-int
-argparse_help_cb_no_exit(struct argparse *self,
-                         const struct argparse_option *option)
-{
+int argparse_help_cb_no_exit(struct argparse* self,
+                             const struct argparse_option* option) {
     (void)option;
     argparse_usage(self);
     return (EXIT_SUCCESS);
 }
 
-int
-argparse_help_cb(struct argparse *self, const struct argparse_option *option)
-{
+int argparse_help_cb(struct argparse* self,
+                     const struct argparse_option* option) {
     argparse_help_cb_no_exit(self, option);
     exit(EXIT_SUCCESS);
 }
-

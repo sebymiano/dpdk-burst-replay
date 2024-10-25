@@ -19,4 +19,3 @@ stats:
     file_name: "result_v2.csv"
 send_port_pci: 0000:51:00.0
 loglevel: TRACE
-

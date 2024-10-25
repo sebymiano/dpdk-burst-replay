@@ -32,6 +32,8 @@ enum {
 
 #define Million (uint64_t)(1000000UL)
 #define Billion (uint64_t)(1000000000UL)
+#define ROW_CLEAR "\033[2K"       // ANSI code to clear the line
+#define MOVE_CURSOR_UP "\033[1A"  // ANSI code to move the cursor up
 
 static struct rte_eth_conf port_conf_default = {
 #ifdef RTE_VER_YEAR
@@ -90,8 +92,13 @@ static struct rte_eth_txconf const txconf = {
     .tx_free_thresh = 32,
 };
 
+// Synchronization variables
 pthread_mutex_t log_mutex;  // Mutex for logging
 sem_t sem, sem_stop;
+
+pthread_mutex_t header_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t header_cond = PTHREAD_COND_INITIALIZER;
+bool header_printed = false;
 
 void* myrealloc(void* ptr, size_t new_size) {
     void* res = realloc(ptr, new_size);
@@ -592,6 +599,29 @@ uint64_t get_tx_cycles_mbps(const struct pcap_ctx* pcap_cfgs,
     return tx_cycles;
 }
 
+static void clear_previous_lines(int num_lines) {
+    for (int i = 0; i < num_lines; ++i) {
+        printf(ROW_CLEAR);
+        printf(MOVE_CURSOR_UP);
+    }
+}
+
+void print_header_once() {
+    pthread_mutex_lock(&header_mutex);
+    if (!header_printed) {
+        log_info("Port | RX-packets | RX-bytes  | RX-Gbps | TX-packets | TX-bytes  | TX-Gbps");
+        log_info("---------------------------------------------------------------------------");
+        header_printed = true;
+        pthread_cond_broadcast(&header_cond);  // Notify other threads that header is printed
+    } else {
+        // Wait until the header is printed by the first thread
+        while (!header_printed) {
+            pthread_cond_wait(&header_cond, &header_mutex);
+        }
+    }
+    pthread_mutex_unlock(&header_mutex);
+}
+
 int remote_thread(void* thread_ctx) {
     struct thread_ctx* ctx;
     struct rte_mbuf** mbuf;
@@ -756,9 +786,16 @@ int remote_thread(void* thread_ctx) {
         uint64_t tx_bytes_rate = 0;
         uint64_t tx_bit_delta = 0;
 
-        double gbps = 0.0;
+        double rx_gbps = 0.0;
+        double tx_gbps = 0.0;
         bzero(&old_stats, sizeof(old_stats));
         run_cpt = 0;
+
+        print_header_once();
+
+        // log_info("Port | RX-packets | RX-bytes  | RX-Gbps | TX-packets | TX-bytes  | TX-Gbps");
+        // log_info("---------------------------------------------------------------------------");
+
         // If we have the CSV file flag enable, let's write the CSV header
         if (ctx->csv_ptr) {
             fprintf(ctx->csv_ptr,
@@ -780,49 +817,33 @@ int remote_thread(void* thread_ctx) {
                 diff_cycles = prev_cycles - diff_cycles;
 
             rx_pkt_delta = stats.ipackets - old_stats.ipackets;
-            rx_pkt_rate = diff_cycles > 0
-                              ? (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles
-                              : 0;
+            rx_pkt_rate = diff_cycles > 0 ? (rx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             rx_bytes_delta = stats.ibytes - old_stats.ibytes;
-            rx_bit_delta =
-                (rx_bytes_delta + (PKT_OVERHEAD_SIZE * rx_pkt_delta)) * 8;
-            rx_bytes_rate =
-                diff_cycles > 0
-                    ? (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles
-                    : 0;
+            rx_bit_delta = (rx_bytes_delta + (PKT_OVERHEAD_SIZE * rx_pkt_delta)) * 8;
+            rx_bytes_rate = diff_cycles > 0 ? (rx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_pkt_delta = stats.opackets - old_stats.opackets;
-            tx_pkt_rate = diff_cycles > 0
-                              ? (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles
-                              : 0;
+            tx_pkt_rate = diff_cycles > 0 ? (tx_pkt_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
             tx_bytes_delta = stats.obytes - old_stats.obytes;
-            tx_bit_delta =
-                (tx_bytes_delta + (PKT_OVERHEAD_SIZE * tx_pkt_delta)) * 8;
-            tx_bytes_rate =
-                diff_cycles > 0
-                    ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles
-                    : 0;
+            tx_bit_delta = (tx_bytes_delta + (PKT_OVERHEAD_SIZE * tx_pkt_delta)) * 8;
+            tx_bytes_rate = diff_cycles > 0 ? (tx_bytes_delta * rte_get_tsc_hz()) / diff_cycles : 0;
 
-            log_info("[Thread %d]: -> Stats for port: %u\n", thread_id,
-                     ctx->rx_port_id);
-            gbps = (double)(rx_bit_delta) / Billion;
-            // Print stats with 2 decimal places
-            log_info("  RX-packets: %-10" PRIu64 "  RX-bytes:  %-10" PRIu64
-                     "  RX-Gbps: %.2f",
-                     rx_pkt_rate, rx_bytes_rate, gbps);
-            gbps = (double)(tx_bit_delta) / Billion;
-            log_info("  TX-packets: %-10" PRIu64 "  TX-bytes:  %-10" PRIu64
-                     "  TX-Gbps: %.2f",
-                     tx_pkt_rate, tx_bytes_rate, gbps);
-            log_info("\n");
+            rx_gbps = (double)(rx_bit_delta) / Billion;
+            tx_gbps = (double)(tx_bit_delta) / Billion;
+
+            log_info(" %u   | %-10" PRIu64 " | %-10" PRIu64 " | %-7.2f | %-10" PRIu64 " | %-10" PRIu64 " | %-7.2f",
+               ctx->rx_port_id, rx_pkt_rate, rx_bytes_rate, rx_gbps, tx_pkt_rate, tx_bytes_rate, tx_gbps);
+
+            // log_info("[Thread %d]: -> Stats for port: %u\n", thread_id, ctx->rx_port_id);
+            // log_info("  RX-packets: %-10" PRIu64 "  RX-bytes:  %-10" PRIu64 "  RX-Gbps: %.2f", rx_pkt_rate, rx_bytes_rate, rx_gbps);
+            // log_info("  TX-packets: %-10" PRIu64 "  TX-bytes:  %-10" PRIu64 "  TX-Gbps: %.2f", tx_pkt_rate, tx_bytes_rate, tx_gbps);
+            // log_info("\n");
 
             memcpy(&old_stats, &stats, sizeof(stats));
             if (ctx->csv_ptr) {
-                fprintf(ctx->csv_ptr,
-                        "%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
-                        "\n",
+                fprintf(ctx->csv_ptr, "%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64"\n",
                         ctx->rx_port_id, run_cpt, rx_pkt_rate, rx_bytes_rate,
                         tx_pkt_rate, tx_bytes_rate);
             }

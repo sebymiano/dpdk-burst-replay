@@ -6,10 +6,10 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
+#include <pthread.h>
 #include <semaphore.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <pthread.h>
 
 #include "config_yaml.h"
 
@@ -116,7 +116,9 @@ struct dpdk_ctx {
     struct pcap_cache* pcap_caches; /* tab of caches, one per NIC port */
 };
 
-enum thread_type { PCAP_THREAD = 0, STATS_THREAD, RECV_THREAD };
+enum thread_type { PCAP_THREAD = 0,
+                   STATS_THREAD,
+                   RECV_THREAD };
 
 /* struct to store threads context */
 struct thread_ctx {

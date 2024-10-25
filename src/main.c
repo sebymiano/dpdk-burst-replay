@@ -3,35 +3,34 @@
   Copyright 2018 Jonathan Ribas, FraudBuster. All rights reserved.
 */
 
-#include <strings.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <errno.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include <rte_ethdev.h>
 
-#include "config_yaml.h"
 #include "argparse.h"
+#include "config_yaml.h"
 #include "main.h"
 
 #include "log.h"
 
-void usage(void)
-{
-    puts("dpdk-replay \n" \
-         "  --config <config.yaml> : path to the configuration file\n" \
-         "  --help                 : show this help message and exit\n");
-    return ;
+void usage(void) {
+    puts(
+        "dpdk-replay \n"
+        "  --config <config.yaml> : path to the configuration file\n"
+        "  --help                 : show this help message and exit\n");
+    return;
 }
 
 #ifdef DEBUG
-void print_opts(const struct cmd_opts* opts)
-{
+void print_opts(const struct cmd_opts* opts) {
     if (!opts)
-        return ;
+        return;
     log_info("--");
     log_info("numacore: %i", (int)(opts->numacore));
     log_info("nb runs: %u", opts->nbruns);
@@ -49,7 +48,7 @@ void print_opts(const struct cmd_opts* opts)
         log_info("trace[%d]: %s", i, opts->traces[i].path);
         log_info("tx_queues[%d]: %d", i, opts->traces[i].tx_queues);
     }
-    
+
     log_info("pci nic ports:");
     for (int i = 0; i < opts->nb_pcicards; i++)
         log_info(" %s", opts->pcicards[i]);
@@ -61,21 +60,20 @@ void print_opts(const struct cmd_opts* opts)
         log_info("stats_name[%d]: %s", i, opts->stats_name[i]);
 
     log_info("Log level: %s", log_level_string(opts->loglevel));
-    
+
     log_info("--");
-    return ;
+    return;
 }
 #endif /* DEBUG */
 
-char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis)
-{
+char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis) {
     char** list = NULL;
     int i;
 
     if (!pcis || !opts)
         return (NULL);
 
-    for (i = 1; ; i++) {
+    for (i = 1;; i++) {
         list = realloc(list, sizeof(*list) * (i + 1));
         if (!list)
             return (NULL);
@@ -94,7 +92,7 @@ char** str_to_pcicards_list(struct cmd_opts* opts, char* pcis)
     return (list);
 }
 
-bool str_in_list(const char *str, char **list, int len) {
+bool str_in_list(const char* str, char** list, int len) {
     for (int i = 0; i < len; i++) {
         if (strcmp(str, list[i]) == 0) {
             return true;
@@ -103,15 +101,14 @@ bool str_in_list(const char *str, char **list, int len) {
     return false;
 }
 
-char** str_to_stats_list(struct cmd_opts* opts, char* stats)
-{
+char** str_to_stats_list(struct cmd_opts* opts, char* stats) {
     char** list = NULL;
     int i;
 
     if (!stats || !opts)
         return (NULL);
 
-    for (i = 1; ; i++) {
+    for (i = 1;; i++) {
         list = realloc(list, sizeof(*list) * (i + 1));
         if (!list)
             return (NULL);
@@ -130,15 +127,14 @@ char** str_to_stats_list(struct cmd_opts* opts, char* stats)
     return (list);
 }
 
-char** str_to_stats_name_list(struct cmd_opts* opts, char* stats)
-{
+char** str_to_stats_name_list(struct cmd_opts* opts, char* stats) {
     char** list = NULL;
     int i;
 
     if (!stats || !opts)
         return (NULL);
 
-    for (i = 1; ; i++) {
+    for (i = 1;; i++) {
         list = realloc(list, sizeof(*list) * (i + 1));
         if (!list)
             return (NULL);
@@ -158,13 +154,13 @@ char** str_to_stats_name_list(struct cmd_opts* opts, char* stats)
     return (list);
 }
 
-int parse_config_file(const char *config_file, struct cmd_opts* opts) {
+int parse_config_file(const char* config_file, struct cmd_opts* opts) {
     int ret = 0;
     cyaml_err_t err;
-    config_t *cfg;
+    config_t* cfg;
 
     /* Load input file. */
-    err = cyaml_load_file(config_file, &config, &top_schema, (cyaml_data_t **)&cfg, NULL);
+    err = cyaml_load_file(config_file, &config, &top_schema, (cyaml_data_t**)&cfg, NULL);
     if (err != CYAML_OK) {
         log_fatal("ERROR: %s", cyaml_strerror(err));
         return EXIT_FAILURE;
@@ -301,9 +297,7 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     return EXIT_SUCCESS;
 }
 
-
-int parse_options(const int ac, char** av, struct cmd_opts* opts)
-{
+int parse_options(const int ac, char** av, struct cmd_opts* opts) {
     int i;
 
     if (!av || !opts)
@@ -325,11 +319,9 @@ int parse_options(const int ac, char** av, struct cmd_opts* opts)
     }
 }
 
-int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap,
-                        struct dpdk_ctx* dpdk)
-{
-    float           needed_mem;
-    char*           hsize;
+int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap, struct dpdk_ctx* dpdk) {
+    float needed_mem;
+    char* hsize;
 
     if (!opts || !pcap || !dpdk)
         return (EINVAL);
@@ -338,13 +330,14 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     dpdk->mbuf_sz = sizeof(struct rte_mbuf) + pcap->max_pkt_sz;
     dpdk->mbuf_sz += (dpdk->mbuf_sz % (sizeof(int)));
 
-    log_debug("Needed paket allocation size = "
-         "(size of MBUF) + (size of biggest pcap packet), "
-         "rounded up to the next multiple of an integer.");
+    log_debug(
+        "Needed paket allocation size = "
+        "(size of MBUF) + (size of biggest pcap packet), "
+        "rounded up to the next multiple of an integer.");
     log_debug("(%lu + %u) + ((%lu + %u) %% %lu) = %lu",
-           sizeof(struct rte_mbuf), pcap->max_pkt_sz,
-           sizeof(struct rte_mbuf), pcap->max_pkt_sz,
-           sizeof(int), dpdk->mbuf_sz);
+              sizeof(struct rte_mbuf), pcap->max_pkt_sz,
+              sizeof(struct rte_mbuf), pcap->max_pkt_sz,
+              sizeof(int), dpdk->mbuf_sz);
 
     log_debug("-> Needed MBUF size: %lu", dpdk->mbuf_sz);
 
@@ -354,11 +347,12 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     /* The optimum size (in terms of memory usage) for a mempool is when n is a
        power of two minus one: n = (2^q - 1).  */
 
-    log_debug("Needed number of MBUFS: next power of two minus one of "
-         "(nb pkts * nb ports)");
+    log_debug(
+        "Needed number of MBUFS: next power of two minus one of "
+        "(nb pkts * nb ports)");
 
     dpdk->nb_mbuf = get_next_power_of_2(pcap->nb_pkts * opts->nb_pcicards) - 1;
-#else /* !DPDK_RECOMMANDATIONS */
+#else  /* !DPDK_RECOMMANDATIONS */
     /*
       Some tests shown that the perf are not so much impacted when allocating the
       exact number of wanted mbufs. I keep it simple for now to reduce the needed
@@ -387,22 +381,21 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     free(hsize);
 
     /* # CALCULATE THE NEEDED NUMBER OF GIGABYTE HUGEPAGES */
-    if (fmod(needed_mem,((double)(1024*1024*1024))))
-        dpdk->pool_sz = needed_mem / (float)(1024*1024*1024) + 1;
+    if (fmod(needed_mem, ((double)(1024 * 1024 * 1024))))
+        dpdk->pool_sz = needed_mem / (float)(1024 * 1024 * 1024) + 1;
     else
-        dpdk->pool_sz = needed_mem / (1024*1024*1024);
+        dpdk->pool_sz = needed_mem / (1024 * 1024 * 1024);
     log_debug("-> Needed Hugepages of 1 Go = %lu", dpdk->pool_sz);
     return (0);
 }
 
-int main(const int ac, char** av)
-{
-    struct cmd_opts         opts;
-    struct cpus_bindings    cpus;
-    struct dpdk_ctx         *dpdk_cfgs;
-    struct pcap_ctx         *pcap_cfgs;
-    int                     ret;
-    struct thread_ctx*      stats_ctx = NULL;
+int main(const int ac, char** av) {
+    struct cmd_opts opts;
+    struct cpus_bindings cpus;
+    struct dpdk_ctx* dpdk_cfgs;
+    struct pcap_ctx* pcap_cfgs;
+    int ret;
+    struct thread_ctx* stats_ctx = NULL;
 
     /* set default opts */
     bzero(&cpus, sizeof(cpus));
@@ -417,7 +410,7 @@ int main(const int ac, char** av)
         usage();
         return (1);
     }
-    
+
     print_opts(&opts);
 
     /*
@@ -436,7 +429,7 @@ int main(const int ac, char** av)
         log_error("malloc failed.");
         return (ENOMEM);
     }
-    
+
     for (int i = 0; i < opts.nb_traces; i++) {
         bzero(&pcap_cfgs[i], sizeof(pcap_cfgs[i]));
         bzero(&dpdk_cfgs[i], sizeof(dpdk_cfgs[i]));
@@ -450,7 +443,7 @@ int main(const int ac, char** av)
         ret = check_needed_memory(&opts, &pcap_cfgs[i], &dpdk_cfgs[i]);
         if (ret)
             goto mainExit;
-        
+
         log_debug("\n----------------------\n");
     }
 

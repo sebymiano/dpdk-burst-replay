@@ -49,8 +49,12 @@ typedef struct {
 
 /* Mapping from "month" strings to flag values for schema. */
 static const cyaml_strval_t loglevel_strings[] = {
-    {"TRACE", LOG_TRACE}, {"DEBUG", LOG_DEBUG}, {"INFO", LOG_INFO},
-    {"WARN", LOG_WARN},   {"ERROR", LOG_ERROR}, {"FATAL", LOG_FATAL},
+    {"TRACE", LOG_TRACE},
+    {"DEBUG", LOG_DEBUG},
+    {"INFO", LOG_INFO},
+    {"WARN", LOG_WARN},
+    {"ERROR", LOG_ERROR},
+    {"FATAL", LOG_FATAL},
 };
 
 /******************************************************************************

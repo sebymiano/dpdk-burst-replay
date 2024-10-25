@@ -1,6 +1,7 @@
 ---
 BasedOnStyle: Chromium
 IndentWidth: 4
+ColumnLimit: 0
 
 IncludeCategories:
   - Regex:           '<.*>'

@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <linux/limits.h>
 #include <stdio.h>
-#include <linux/time.h>
+#include <time.h>
 #include <unistd.h>
 
 /* DPDK includes */

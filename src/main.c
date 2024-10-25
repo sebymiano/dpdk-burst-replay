@@ -239,6 +239,23 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
     cfg->write_csv ? (opts->write_csv = 1) : (opts->write_csv = 0);
     cfg->slow_mode ? (opts->slow_mode = 1) : (opts->slow_mode = 0);
 
+    /* Check whether the read ports are correct */
+    if (cfg->send_port_pci != NULL) {
+        /* TODO: In the future we should support more */
+        unsigned int send_port_count = 1;
+        opts->pcicards = malloc(sizeof(char*) * send_port_count);
+        if (!opts->pcicards) {
+            log_fatal("ERROR: Cannot allocate memory for read ports");
+            return EXIT_FAILURE;
+        }
+        for (int i = 0; i < send_port_count; i++) {
+            opts->pcicards[i] = strdup(cfg->send_port_pci);
+        }
+        opts->nb_pcicards = send_port_count;
+        opts->nb_total_ports = send_port_count;
+    }
+    log_info("Done checking send_port_pci");
+
     /* Check whether the stats ports are correct */
     if (cfg->stats_count > 0) {
         opts->stats = malloc(sizeof(char*) * cfg->stats_count);
@@ -256,24 +273,6 @@ int parse_config_file(const char *config_file, struct cmd_opts* opts) {
         opts->nb_stats_file_name = cfg->stats_count;
     }
     log_info("Done checking stats count");
-
-    /* Check whether the read ports are correct */
-    if (cfg->send_port_pci != NULL) {
-        /* TODO: In the future we should support more */
-        unsigned int send_port_count = 1;
-        opts->pcicards = malloc(sizeof(char*) * send_port_count);
-        if (!opts->pcicards) {
-            log_fatal("ERROR: Cannot allocate memory for read ports");
-            return EXIT_FAILURE;
-        }
-        for (int i = 0; i < send_port_count; i++) {
-            opts->pcicards[i] = strdup(cfg->send_port_pci);
-        }
-        opts->nb_pcicards = send_port_count;
-        opts->nb_total_ports = send_port_count;
-    }
-
-    log_info("Done checking send_port_pci");
 
     if (opts->nb_stats > 0) {
         log_info("NB stats ports: %d", opts->nb_stats);

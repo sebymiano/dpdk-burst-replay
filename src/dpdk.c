@@ -575,8 +575,8 @@ static uint64_t create_timestamp(void) {
 }
 
 /* Calculate the number of cycles to wait between sending bursts of traffic. */
-uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts) {
-    double pps = opts->max_mpps * Million;
+uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts, int num_threads) {
+    double pps = (opts->max_mpps * Million) / (double)num_threads;
     uint64_t cpp = (pps > 0) ? (rte_get_timer_hz() / pps) : rte_get_timer_hz();
     uint64_t tx_cycles = (cpp * BURST_SZ);
 
@@ -586,10 +586,10 @@ uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts) {
 }
 
 uint64_t get_tx_cycles_mbps(const struct pcap_ctx* pcap_cfgs,
-                            const struct cmd_opts* opts) {
+                            const struct cmd_opts* opts, int num_threads) {
     uint64_t wire_size = (pcap_cfgs->avg_pkt_sz + PKT_OVERHEAD_SIZE) * 8;
 
-    double link_bps = opts->max_mbps * Million;
+    double link_bps = (opts->max_mbps * Million) / (double)num_threads;
     uint64_t id_cycles = (wire_size / link_bps) * rte_get_timer_hz();
     uint64_t tx_cycles = (id_cycles * BURST_SZ);
 
@@ -992,9 +992,9 @@ int start_all_threads(const struct cmd_opts* opts,
         if (opts->max_mpps == -1 && opts->max_mbps == -1) {
             ctx[i].tx_rate_cycles = -1;
         } else if (opts->max_mpps > 0) {
-            ctx[i].tx_rate_cycles = get_tx_cycles_mpps(opts);
+            ctx[i].tx_rate_cycles = get_tx_cycles_mpps(opts, cpus->nb_needed_pcap_cpus);
         } else {
-            ctx[i].tx_rate_cycles = get_tx_cycles_mbps(&pcap_cfgs[i], opts);
+            ctx[i].tx_rate_cycles = get_tx_cycles_mbps(&pcap_cfgs[i], opts, cpus->nb_needed_pcap_cpus);
         }
     }
 

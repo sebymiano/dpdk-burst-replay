@@ -485,10 +485,26 @@ mainExit:
     /* cleanup */
     log_trace("Cleaning up dpdk");
     /* close ethernet devices */
-    for (int i = 0; i < rte_eth_dev_count_avail(); i++) {
-        /* Check if the device is started */
-        rte_eth_dev_stop(i);
-        rte_eth_dev_close(i);
+    for (int i = 0; i < opts.nb_total_ports; i++) {
+        log_trace("Stopping device %d", i);
+        int retries = 5;
+        do {
+            ret = rte_eth_dev_stop(i);
+            if (ret < 0) {
+                log_error("Failed to stop device %d: %s", i, rte_strerror(rte_errno));
+                sleep(1);
+            }
+        } while (ret < 0 && retries-- > 0); // Retry stopping the device
+
+        // Ensure the device has actually stopped
+        if (ret >= 0) { // Successful stop
+            ret = rte_eth_dev_close(i);
+            if (ret < 0) {
+                log_error("Failed to close device %d: %s", i, rte_strerror(rte_errno));
+            }
+        } else {
+            log_error("Unable to stop device %d after multiple retries.", i);
+        }
     }
     rte_eal_cleanup();
 

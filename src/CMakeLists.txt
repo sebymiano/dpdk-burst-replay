@@ -10,6 +10,7 @@ add_executable(dpdk-replay
     utils.c
     argparse.c
     log.c
+    csv_to_json.c
 )
 
 # Add CFLAGS for dpdk-replay

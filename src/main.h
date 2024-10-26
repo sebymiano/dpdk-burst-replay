@@ -67,6 +67,7 @@ struct cmd_opts {
     float max_mbps;
     int wait;
     int write_csv;
+    int convert_to_json;
     int slow_mode;
     trace_t* traces;
     int nb_traces;

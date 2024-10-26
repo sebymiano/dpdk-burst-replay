@@ -233,6 +233,7 @@ int parse_config_file(const char* config_file, struct cmd_opts* opts) {
 
     cfg->wait_enter ? (opts->wait = 1) : (opts->wait = 0);
     cfg->write_csv ? (opts->write_csv = 1) : (opts->write_csv = 0);
+    cfg->convert_to_json ? (opts->convert_to_json = 1) : (opts->convert_to_json = 0);
     cfg->slow_mode ? (opts->slow_mode = 1) : (opts->slow_mode = 0);
 
     /* Check whether the read ports are correct */
@@ -494,10 +495,10 @@ mainExit:
                 log_error("Failed to stop device %d: %s", i, rte_strerror(rte_errno));
                 sleep(1);
             }
-        } while (ret < 0 && retries-- > 0); // Retry stopping the device
+        } while (ret < 0 && retries-- > 0);  // Retry stopping the device
 
         // Ensure the device has actually stopped
-        if (ret >= 0) { // Successful stop
+        if (ret >= 0) {  // Successful stop
             ret = rte_eth_dev_close(i);
             if (ret < 0) {
                 log_error("Failed to close device %d: %s", i, rte_strerror(rte_errno));

@@ -18,6 +18,7 @@
 #include <rte_version.h>
 
 #include "argparse.h"
+#include "csv_to_json.h"
 #include "main.h"
 
 #define IFG_PLUS_PREAMBLE 20
@@ -586,7 +587,8 @@ uint64_t get_tx_cycles_mpps(const struct cmd_opts* opts, int num_threads) {
 }
 
 uint64_t get_tx_cycles_mbps(const struct pcap_ctx* pcap_cfgs,
-                            const struct cmd_opts* opts, int num_threads) {
+                            const struct cmd_opts* opts,
+                            int num_threads) {
     uint64_t wire_size = (pcap_cfgs->avg_pkt_sz + PKT_OVERHEAD_SIZE) * 8;
 
     double link_bps = (opts->max_mbps * Million) / (double)num_threads;
@@ -793,9 +795,6 @@ int remote_thread(void* thread_ctx) {
 
         print_header_once();
 
-        // log_info("Port | RX-packets | RX-bytes  | RX-Gbps | TX-packets | TX-bytes  | TX-Gbps");
-        // log_info("---------------------------------------------------------------------------");
-
         // If we have the CSV file flag enable, let's write the CSV header
         if (ctx->csv_ptr) {
             fprintf(ctx->csv_ptr,
@@ -834,7 +833,7 @@ int remote_thread(void* thread_ctx) {
             tx_gbps = (double)(tx_bit_delta) / Billion;
 
             log_info(" %u   | %-10" PRIu64 " | %-10" PRIu64 " | %-7.2f | %-10" PRIu64 " | %-10" PRIu64 " | %-7.2f",
-               ctx->rx_port_id, rx_pkt_rate, rx_bytes_rate, rx_gbps, tx_pkt_rate, tx_bytes_rate, tx_gbps);
+                     ctx->rx_port_id, rx_pkt_rate, rx_bytes_rate, rx_gbps, tx_pkt_rate, tx_bytes_rate, tx_gbps);
 
             // log_info("[Thread %d]: -> Stats for port: %u\n", thread_id, ctx->rx_port_id);
             // log_info("  RX-packets: %-10" PRIu64 "  RX-bytes:  %-10" PRIu64 "  RX-Gbps: %.2f", rx_pkt_rate, rx_bytes_rate, rx_gbps);
@@ -843,7 +842,7 @@ int remote_thread(void* thread_ctx) {
 
             memcpy(&old_stats, &stats, sizeof(stats));
             if (ctx->csv_ptr) {
-                fprintf(ctx->csv_ptr, "%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64"\n",
+                fprintf(ctx->csv_ptr, "%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
                         ctx->rx_port_id, run_cpt, rx_pkt_rate, rx_bytes_rate,
                         tx_pkt_rate, tx_bytes_rate);
             }
@@ -1150,6 +1149,42 @@ int start_all_threads(const struct cmd_opts* opts,
             log_info("Closing CSV file for thread %u", i);
             fclose(ctx[i].csv_ptr);
             ctx[i].csv_ptr = NULL;
+
+            if (opts->convert_to_json) {
+                int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
+                char file_name[PATH_MAX];
+
+                if (opts->nb_stats_file_name > 0) {
+                    log_trace("Using custom stats file name for port %u: %s",
+                              port_no, opts->stats_name[port_no]);
+                    strncpy(file_name, opts->stats_name[port_no], PATH_MAX - 1);
+                    file_name[PATH_MAX - 1] = '\0';  // Ensure null-termination
+                } else {
+                    snprintf(file_name, PATH_MAX, "results_port_%u.csv", port_no);
+                }
+
+                // Create a duplicate of file_name to modify for the JSON filename
+                char* json_file_name = strdup(file_name);
+                if (json_file_name == NULL) {
+                    perror("Failed to allocate memory for json_file_name");
+                    continue;  // Skip to the next iteration on memory allocation failure
+                }
+
+                // Check if the json_file_name ends with ".csv" and remove it
+                size_t len = strlen(json_file_name);
+                if (len > 4 && strcmp(json_file_name + len - 4, ".csv") == 0) {
+                    json_file_name[len - 4] = '\0';  // Truncate to remove ".csv"
+                }
+
+                // Append ".json" extension to json_file_name
+                strcat(json_file_name, ".json");
+
+                // Call csv_to_json with the original .csv filename and the new .json filename
+                csv_to_json(file_name, json_file_name);
+
+                // Free allocated memory for json_file_name
+                free(json_file_name);
+            }
         }
     }
 

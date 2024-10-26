@@ -1019,11 +1019,6 @@ int start_all_threads(const struct cmd_opts* opts,
             ctx[i].thread_id = i;
             ctx[i].t_type = RECV_THREAD;
             ctx[i].nb_rx_queues = opts->nb_rx_queues;
-            // ctx[i].nb_rx_queues_start = j * (opts->nb_rx_queues /
-            // opts->nb_rx_cores); ctx[i].nb_rx_queues_end =
-            // ctx[i].nb_rx_queues_start - 1 + (opts->nb_rx_queues /
-            // opts->nb_rx_cores); Assign an extra queue to the first
-            // `remainder_queues` cores
             int assigned_queues =
                 rx_queues_per_core + (j < rx_remainder_queues ? 1 : 0);
             ctx[i].nb_rx_queues_start =
@@ -1054,7 +1049,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].timeout = opts->timeout;
         ctx[i].thread_id = i;
         ctx[i].t_type = STATS_THREAD;
-
+        ctx[i].csv_ptr = NULL;
         int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
         /* Initialize CSV files if the corresponding flag is set */
         if (opts->write_csv) {

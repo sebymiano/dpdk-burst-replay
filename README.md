@@ -2,8 +2,8 @@
 
 ## Introduction
 
-The tool is designed to provide high DPDK performances to burst any pcap dump on
-a single or multiple NIC port(s).
+This is a modified version of the `dpdk-replay` tool, which was originally published on this [GitHub repository](https://github.com/FraudBuster/dpdk-burst-replay).
+The tool is designed to provide high DPDK performances (up to 148Mpps with 64B packets) to burst any pcap dump on a single NIC port(s).
 
 To do so, the pcap files will be cached on hugepages before being sent through DPDK.
 
@@ -11,10 +11,16 @@ To do so, the pcap files will be cached on hugepages before being sent through D
 
 ### Install dependencies
 
-* dpdk v22.11.2 (LTS)
+* dpdk v23.11.2 (LTS) or later
 * libnuma-dev
 * libyaml-dev
+* libcyaml-dev
+* libcsv-dev
 * That's all.
+
+```bash
+$ sudo apt install libnuma-dev libyaml-dev libcyaml-dev libcsv-dev -y
+```
 
 NB: libpcap is not required, as dpdk-replay process pcap files manually.
 
@@ -43,20 +49,50 @@ The configuration file is a YAML file that contains the following syntax:
 
 ```yaml
 ---
+# Here you can specify the pcap file to replay
+# and the number of tx queues
+# Every trace will use a separate TX core to send packets
+# If you want to push a specific trace to the limits (e.g., 148Mpps),
+# you can specify the same trace N times, so that N cores will be used to
+# send packets from the same trace.
+# Of course, this will not ensure that the packets will be sent in the same order.
 traces: 
-  - path: "/mydata/equinix-nyc.dirA.20190117-125910.UTC.anon.64.1000000.pcap"
-    tx_queues: 4
-numacore: 1
+  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+    tx_queues: 8
+# Specify here the numa node to use
+numacore: 0
+# Specify the number of runs to loop the pcap file
 nbruns: 100000000
-timeout: 60
-max_bitrate: 10000000000
+# If you specify the timeout, the PCAP will be replayed until the timeout is reached
+timeout: 10
+# Specify the maximum packets per second
+max_mpps: -1
+# Specify the maximum megabits per second
+max_mbps: -1
+# Set this to true if you want to write the results in a CSV file
 write_csv: True
+# Set this to true if you want to wait and press enter before starting the replay
 wait_enter: False
+# Set this to true if you want to enable slow mode
 slow_mode: False
+# Set this to true if you want to convert the results to JSON format (only if write_csv is True)
+convert_to_json: True
+# Specify the number of RX queues and cores
+nb_rx_queues: 16
+nb_rx_cores: 4
+# Specify the PCI address of the NIC to use to send packets
+send_port_pci: 0000:51:00.0
+# Specify the PCI address of the NIC to use to read results from
+# By default, the 1st PCI address of the send_port_pci should be in this list
+# If you want to read results from multiple NICs, you can specify them here
 stats:
-  - pci_id: 0000:81:00.0
-    file_name: "result_v1_core1.csv"
-send_port_pci: 0000:81:00.0
+  - pci_id: 0000:51:00.0
+    file_name: "result_v1.csv"
+  - pci_id: 0000:51:00.1
+    file_name: "result_v2.csv"
+# Specify the log level
+loglevel: TRACE
+
 ```
 
 Then, you can launch `dpdk-replay` with the following command:
@@ -64,34 +100,6 @@ Then, you can launch `dpdk-replay` with the following command:
 ```bash
 $ dpdk-replay --config config.yaml
 ```
-
-## Compiling and installing it (old way)
-
-> autoreconf -i && ./configure [--enable-debug] && make && sudo make install
-
-OR:
-
-> RTE_SDK=<RTE_SDK_PATH> make -f DPDK_Makefile && sudo cp build/dpdk-replay /usr/bin
-
-### Launching it (old way)
-
-> dpdk-replay [--nbruns NB] [--numacore 0|1] FILE NIC_ADDR[,NIC_ADDR...]
-
-Example:
-> dpdk-replay --nbruns 1000 --numacore 0 foobar.pcap 04:00.0,04:00.1,04:00.2,04:00.3
-
-## TODO
-
-* Add a configuration file or cmdline options for all code defines.
-* Add an option to configure maximum bitrate.
-* Add an option to send the pcap with the good pcap timers.
-* Add an option to send the pcap with a multiplicative speed (like, ten times the normal speed).
-* Add an option to select multiple pcap files at once.
-* Be able to send dumps simultaneously on both numacores.
-* Split big pkts into multiple mbufs.
-* Add a Python module to facilitate scripting (something like what does scapy for tcpreplay sendpfast func).
-* Manage systems with more than 2 numa cores.
-* Use the maximum NICs capabilities (Tx queues/descriptors).
 
 ## BSD LICENCE
 

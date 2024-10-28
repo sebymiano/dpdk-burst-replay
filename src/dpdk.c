@@ -799,7 +799,7 @@ int remote_thread(void* thread_ctx) {
         // If we have the CSV file flag enable, let's write the CSV header
         if (ctx->csv_ptr) {
             fprintf(ctx->csv_ptr,
-                    "#Port,Time,RX-packets,RX-bytes,TX-packets,TX-bytes\n");
+                    "#Port,Time,RX-packets,RX-bytes,RX-rate,TX-packets,TX-bytes,TX-rate\n");
         }
 
         while (true) {
@@ -843,9 +843,9 @@ int remote_thread(void* thread_ctx) {
 
             memcpy(&old_stats, &stats, sizeof(stats));
             if (ctx->csv_ptr) {
-                fprintf(ctx->csv_ptr, "%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
-                        ctx->rx_port_id, run_cpt, rx_pkt_rate, rx_bytes_rate,
-                        tx_pkt_rate, tx_bytes_rate);
+                fprintf(ctx->csv_ptr, "%u,%u,%" PRIu64 ",%" PRIu64 ",%.2f,%" PRIu64 ",%" PRIu64 ",%.2f\n",
+                        ctx->rx_port_id, run_cpt, rx_pkt_rate, rx_bytes_rate, rx_gbps,
+                        tx_pkt_rate, tx_bytes_rate, tx_gbps);
             }
             sleep(1);
 

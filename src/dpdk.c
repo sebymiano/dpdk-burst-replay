@@ -700,9 +700,9 @@ int remote_thread(void* thread_ctx) {
         uint64_t tx_next_cycle, curr_tsc;
 
         /* iterate on each wanted runs */
-        for (run_cpt = ctx->nbruns, tx_queue = ctx->nb_tx_queues_start,
+        for (run_cpt = 0, tx_queue = ctx->nb_tx_queues_start,
             ctx->total_drop = ctx->total_drop_sz = 0;
-             run_cpt; ctx->total_drop += nb_drop, run_cpt--) {
+             (ctx->nbruns < 0 || run_cpt < ctx->nbruns); ctx->total_drop += nb_drop, run_cpt++) {
             if (wait_tx_rate) {
                 curr_tsc = rte_get_tsc_cycles();
                 tx_next_cycle = curr_tsc;
@@ -758,7 +758,7 @@ int remote_thread(void* thread_ctx) {
             if (unlikely(nb_drop))
                 log_trace(
                     "[thread %i]: on loop %i: sent %i pkts (%i were dropped).",
-                    thread_id, ctx->nbruns - run_cpt, ctx->nb_pkt, nb_drop);
+                    thread_id, run_cpt, ctx->nb_pkt, nb_drop);
 
             sem_getvalue(&sem_stop, &sem_value);
             if (sem_value > 0) {

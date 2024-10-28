@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
 
 /* DPDK includes */
 #include <pthread.h>
@@ -939,6 +940,22 @@ void log_lock_function(bool lock, void* lock_arg) {
     }
 }
 
+static void
+signal_handler(int signum)
+{
+	if (signum == SIGINT || signum == SIGTERM) {
+		printf("\n\nSignal %d received, preparing to exit...\n",
+				signum);
+		sem_post(&sem_stop);
+	}
+    /* wait all threads */
+    rte_eal_mp_wait_lcore();
+
+    pthread_mutex_destroy(&log_mutex);
+    sem_destroy(&sem);
+    sem_destroy(&sem_stop);
+}
+
 int start_all_threads(const struct cmd_opts* opts,
                       const struct cpus_bindings* cpus,
                       const struct dpdk_ctx* dpdk_cfgs,
@@ -1072,6 +1089,9 @@ int start_all_threads(const struct cmd_opts* opts,
             ctx[i].csv_ptr = ptr;
         }
     }
+
+    signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
 
     /* launch threads, which will wait on the semaphore to start */
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus +

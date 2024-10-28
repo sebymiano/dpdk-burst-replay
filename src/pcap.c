@@ -87,7 +87,12 @@ int add_pkt_to_cache(const struct dpdk_ctx* dpdk,
 
     /* set the refcnt to the wanted number of runs, avoiding to free
        mbuf struct on first tx burst */
-    rte_mbuf_refcnt_set(m, nbruns);
+    if (nbruns < 0) {
+        /* infinite runs */
+        rte_mbuf_refcnt_set(m, UINT16_MAX - 1);
+    } else {
+        rte_mbuf_refcnt_set(m, nbruns);
+    }
 
     /* check that the crafted packet is valid */
     rte_mbuf_sanity_check(m, 1);

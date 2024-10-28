@@ -193,8 +193,8 @@ int parse_config_file(const char* config_file, struct cmd_opts* opts) {
 
     /* Check whether the number of runs is correct */
     if (cfg->nbruns <= 0) {
-        log_fatal("ERROR: The number of runs must be greater than 0");
-        return EXIT_FAILURE;
+        cfg->nbruns = -1;
+        log_debug("The number of runs is set to -1 (infinite)");
     }
     opts->nbruns = cfg->nbruns;
 

@@ -54,6 +54,8 @@ static struct rte_eth_conf port_conf_default = {
         {
 #if API_AT_LEAST_AS_RECENT_AS(22, 03)
             .mq_mode = RTE_ETH_MQ_RX_RSS,
+            .max_lro_pkt_size = RTE_ETHER_MAX_LEN,
+            .offloads = RTE_ETH_RX_OFFLOAD_CHECKSUM,
 #else
             .mq_mode = ETH_MQ_RX_RSS,
 #endif
@@ -65,7 +67,8 @@ static struct rte_eth_conf port_conf_default = {
                 {
                     .rss_key = NULL,
                     .rss_hf =
-                        RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP,
+                        RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP |
+                        RTE_ETH_RSS_SCTP | RTE_ETH_RSS_L2_PAYLOAD,
                 },
         },
 
@@ -379,6 +382,23 @@ int dpdk_init_read_port(struct cpus_bindings* cpus,
     int ret, i;
     struct rte_eth_dev_info dev_info; /**< PCI info + driver name */
     struct rte_eth_conf local_port_conf = port_conf_default;
+
+    ret = rte_eth_dev_info_get(port, &dev_info);
+    if (ret != 0) {
+        log_error("Error during getting device (port %u) info: %s", port,
+                  strerror(-ret));
+        return (-ret);
+    }
+
+    local_port_conf.rx_adv_conf.rss_conf.rss_hf &= dev_info.flow_type_rss_offloads;
+    if (local_port_conf.rx_adv_conf.rss_conf.rss_hf !=
+        port_conf_default.rx_adv_conf.rss_conf.rss_hf) {
+        log_info(
+            "Port %u modified RSS hash function based on hardware support,"
+            "requested:%#" PRIx64 " configured:%#" PRIx64 "\n",
+            port, port_conf_default.rx_adv_conf.rss_conf.rss_hf,
+            local_port_conf.rx_adv_conf.rss_conf.rss_hf);
+    }
 
     /* Configure for each port (ethernet device), the number of rx queues & tx
      * queues */
@@ -858,10 +878,10 @@ int remote_thread(void* thread_ctx) {
         // We are in the receive thread
         uint16_t nb_rx;
         for (;;) {
-            struct rte_mbuf* bufs[64];
+            struct rte_mbuf* bufs[BURST_SZ];
             for (int q = ctx->nb_rx_queues_start; q <= ctx->nb_rx_queues_end;
                  q++) {
-                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, 64);
+                nb_rx = rte_eth_rx_burst(ctx->rx_port_id, q, bufs, BURST_SZ);
                 // log_trace("[Thread %d] RX queue %d, received %d packets",
                 // thread_id, q, nb_rx);
                 if (unlikely(nb_rx == 0))

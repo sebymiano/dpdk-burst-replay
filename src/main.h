@@ -20,7 +20,7 @@
 #define MAX_NB_TX_QUEUES 4   /* ^2 needed to make fast modulos % */
 #define MAX_NB_RX_QUEUES 128 /* ^2 needed to make fast modulos % */
 #define NB_MAX_PORTS 5
-#define BURST_SZ 128
+#define BURST_SZ 64
 #define NB_RETRY_TX (NB_TX_QUEUES * 2)
 #define MEMPOOL_CACHE_SIZE 256
 #define BURST_SIZE 32

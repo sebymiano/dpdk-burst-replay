@@ -711,7 +711,7 @@ int remote_thread(void* thread_ctx) {
     if (ctx->t_type == PCAP_THREAD) {
         mbuf = ctx->pcap_cache->mbufs;
         bool wait_tx_rate = true;
-        unsigned int retry_tx_cfg = ctx->nb_tx_queues * 2;
+        unsigned int retry_tx_cfg = ctx->nb_tx_queues * 4;
         if (ctx->tx_rate_cycles == -1) {
             wait_tx_rate = false;
         }

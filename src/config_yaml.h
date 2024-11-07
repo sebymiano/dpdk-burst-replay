@@ -40,6 +40,7 @@ typedef struct {
     float max_mbps;
     bool write_csv;
     bool convert_to_json;
+    bool use_mac_filter;
     bool wait_enter;
     bool slow_mode;
     stats_t* stats;
@@ -110,6 +111,7 @@ static const cyaml_schema_field_t top_mapping_schema[] = {
     CYAML_FIELD_FLOAT("max_mbps", CYAML_FLAG_DEFAULT, config_t, max_mbps),
     CYAML_FIELD_BOOL("write_csv", CYAML_FLAG_DEFAULT, config_t, write_csv),
     CYAML_FIELD_BOOL("convert_to_json", CYAML_FLAG_DEFAULT, config_t, convert_to_json),
+    CYAML_FIELD_BOOL("use_mac_filter", CYAML_FLAG_DEFAULT, config_t, use_mac_filter),
     CYAML_FIELD_BOOL("wait_enter", CYAML_FLAG_DEFAULT, config_t, wait_enter),
     CYAML_FIELD_BOOL("slow_mode", CYAML_FLAG_DEFAULT, config_t, slow_mode),
     CYAML_FIELD_UINT("nb_rx_queues",

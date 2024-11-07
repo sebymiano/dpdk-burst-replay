@@ -55,7 +55,7 @@ static struct rte_eth_conf port_conf_default = {
 #if API_AT_LEAST_AS_RECENT_AS(22, 03)
             .mq_mode = RTE_ETH_MQ_RX_RSS,
             .max_lro_pkt_size = RTE_ETHER_MAX_LEN,
-            .offloads = RTE_ETH_RX_OFFLOAD_CHECKSUM,
+            .offloads = RTE_ETH_RX_OFFLOAD_CHECKSUM | RTE_ETH_RX_OFFLOAD_RSS_HASH,
 #else
             .mq_mode = ETH_MQ_RX_RSS,
 #endif
@@ -104,6 +104,17 @@ sem_t sem, sem_stop;
 pthread_mutex_t header_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t header_cond = PTHREAD_COND_INITIALIZER;
 bool header_printed = false;
+
+// Define a structure for MAC-to-queue mapping
+struct mac_to_queue_map {
+    uint8_t mac[RTE_ETHER_ADDR_LEN];
+    uint16_t queue_id;
+    struct rte_flow *flow;  // Pointer to the created flow rule
+};
+
+// Array to store MAC-to-queue mappings for each lcore
+static struct mac_to_queue_map ports_mac_map[NB_MAX_PORTS][MAX_NB_RX_QUEUES];
+
 
 void* myrealloc(void* ptr, size_t new_size) {
     void* res = realloc(ptr, new_size);
@@ -185,6 +196,136 @@ char** fill_eal_args(const struct cmd_opts* opts,
     return (eal_args);
 }
 
+// Function to create a flow rule for each source MAC address
+int create_mac_filter(uint16_t port_id, struct mac_to_queue_map *mac_map, size_t mac_map_size) {
+    struct rte_flow_attr attr;
+    struct rte_flow_item pattern[2] = {0};
+    struct rte_flow_action action[2] = {0};
+    struct rte_flow_error error;
+    int retval;
+
+    // Initialize the attributes to match on incoming packets
+    memset(&attr, 0, sizeof(attr));
+    attr.ingress = 1;  // Match on ingress packets
+
+    for (size_t i = 0; i < mac_map_size; i++) {
+        // Set up the match pattern for source MAC address
+        struct rte_flow_item_eth eth_spec;
+        struct rte_flow_item_eth eth_mask;
+
+        memset(&eth_spec, 0, sizeof(eth_spec));
+        memset(&eth_mask, 0, sizeof(eth_mask));
+
+        // Specify the source MAC address to match
+        rte_memcpy(&eth_spec.src.addr_bytes, mac_map[i].mac, RTE_ETHER_ADDR_LEN);
+        memset(&eth_mask.src.addr_bytes, 0xFF, RTE_ETHER_ADDR_LEN);  // Full match on the source MAC
+
+        pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+        pattern[0].spec = &eth_spec;
+        pattern[0].mask = &eth_mask;
+        pattern[0].last = NULL;
+        pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+
+        // Define the action to direct the packet to a specific RX queue
+        struct rte_flow_action_queue queue = {
+            .index = mac_map[i].queue_id
+        };
+
+        action[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+        action[0].conf = &queue;
+        action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+        printf("Validaing flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X\n",
+               mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+               mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5]);
+        // Validate the flow rule
+        retval = rte_flow_validate(port_id, &attr, pattern, action, &error);
+        if (retval != 0) {
+            fprintf(stderr, "Error validating flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X %s\n",
+                    mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+                    mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5],
+                    error.message);
+            return -1;
+        }
+
+        // Create the flow rule
+        struct rte_flow *flow = rte_flow_create(port_id, &attr, pattern, action, &error);
+        if (!flow) {
+            fprintf(stderr, "Error creating flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X: %s\n",
+                    mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+                    mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5],
+                    error.message);
+            return -1; 
+        } else {
+            mac_map[i].flow = flow;  // Store the flow pointer
+            printf("Created flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X directing to queue %d\n",
+                   mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+                   mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5],
+                   mac_map[i].queue_id);
+        }
+    }
+    return 0;
+}
+
+int create_rss_filter(uint16_t port_id, uint32_t nb_queues, uint16_t *queues) {
+    struct rte_flow_error error;
+    struct rte_flow_item pattern[2] = {0};
+
+    struct rte_flow_attr attr = {
+        .ingress = 1,
+    };
+
+    struct rte_flow_action_rss rss = {
+        .level = 2,
+        .queue = queues,
+        .queue_num = nb_queues,
+        .types = RTE_ETH_RSS_L2_PAYLOAD
+    };
+
+    struct rte_flow_action actions[] = {
+        [0] = { /* The RSS action to be used. */
+            .type = RTE_FLOW_ACTION_TYPE_RSS,
+            .conf = &rss },
+        [1] = { /* End action mast be the last action. */
+            .type = RTE_FLOW_ACTION_TYPE_END,
+            .conf = NULL }
+    };
+
+    pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+    pattern[0].spec = NULL;
+    pattern[0].mask = NULL;
+    pattern[0].last = NULL;
+    pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+
+    struct rte_flow *flow = rte_flow_create(port_id, &attr, pattern, actions, &error);
+    if (!flow) {
+		printf("Can't create the RSS flow on L2 payload. %s\n",
+		       error.message);
+    }
+}
+
+// Function to destroy all flow rules created by create_mac_filter
+void destroy_mac_filter(uint16_t port_id, struct mac_to_queue_map *mac_map, size_t mac_map_size) {
+    struct rte_flow_error error;
+
+    for (size_t i = 0; i < mac_map_size; i++) {
+        if (mac_map[i].flow) {
+            printf("Destroying flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+                    mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5]);
+            int retval = rte_flow_destroy(port_id, mac_map[i].flow, &error);
+            if (retval != 0) {
+                fprintf(stderr, "Error destroying flow rule for MAC %02X:%02X:%02X:%02X:%02X:%02X: %s\n",
+                        mac_map[i].mac[0], mac_map[i].mac[1], mac_map[i].mac[2],
+                        mac_map[i].mac[3], mac_map[i].mac[4], mac_map[i].mac[5],
+                        error.message);
+            } else {
+                mac_map[i].flow = NULL;  // Clear the flow pointer after destruction
+            }
+        }
+    }
+}
+
 static struct rte_mempool* dpdk_mbuf_pool_create(const char* type,
                                                  uint8_t pid,
                                                  uint8_t queue_id,
@@ -247,6 +388,16 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus,
             return (-1);
         }
 
+        printf("Setting up RX queue %d\n", q);
+        ports_mac_map[port][q].mac[0] = 0x10;
+        ports_mac_map[port][q].mac[1] = 0x10;
+        ports_mac_map[port][q].mac[2] = 0x10;
+        ports_mac_map[port][q].mac[3] = 0x10;
+        ports_mac_map[port][q].mac[4] = 0x10;
+        ports_mac_map[port][q].mac[5] = (uint8_t)(q);  // XX is 1, 2, 3, etc.
+
+        ports_mac_map[port][q].queue_id = q;
+
         // rxq_conf = dev_info.default_rxconf;
         ret = rte_eth_rx_queue_setup(port, q, nb_rxd, cpus->numacore, NULL,
                                      cpus->q[port][q].rx_mp);
@@ -274,7 +425,10 @@ int dpdk_init_rx_queues(struct cpus_bindings* cpus,
     return 0;
 }
 
+
+
 int dpdk_init_port(struct cpus_bindings* cpus,
+                   const struct cmd_opts* opts,
                    int port,
                    unsigned int num_rx_queues,
                    unsigned int num_tx_queues) {
@@ -347,6 +501,24 @@ int dpdk_init_port(struct cpus_bindings* cpus,
         return (-1);
     }
 
+    if (opts->use_mac_filter) {
+        // Create MAC-based filtering rules
+        ret = create_mac_filter(port, ports_mac_map[port], num_rx_queues);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    // uint16_t queues[num_rx_queues];
+    // for (int i = 0; i < num_rx_queues; i++) {
+    //     queues[i] = i;
+    // }
+
+    // ret = create_rss_filter(port, num_rx_queues, queues);
+    // if (ret != 0) {
+    //     return ret;
+    // }
+
     ret = rte_eth_promiscuous_enable(port);
 
     if (ret) {
@@ -376,6 +548,7 @@ int dpdk_init_port(struct cpus_bindings* cpus,
 }
 
 int dpdk_init_read_port(struct cpus_bindings* cpus,
+                        const struct cmd_opts* opts,
                         int port,
                         unsigned int num_rx_queues,
                         unsigned int num_tx_queues) {
@@ -420,6 +593,23 @@ int dpdk_init_read_port(struct cpus_bindings* cpus,
         log_error("DPDK: RTE ETH Ethernet device start failed");
         return (-1);
     }
+
+    if (opts->use_mac_filter) {
+        // Create MAC-based filtering rules
+        ret = create_mac_filter(port, ports_mac_map[port], num_rx_queues);
+        if (ret != 0) {
+            return ret;
+        }
+    }
+    // uint16_t queues[num_rx_queues];
+    // for (int i = 0; i < num_rx_queues; i++) {
+    //     queues[i] = i;
+    // }
+
+    // ret = create_rss_filter(port, num_rx_queues, queues);
+    // if (ret != 0) {
+    //     return ret;
+    // }
 
     ret = rte_eth_promiscuous_enable(port);
     if (ret) {
@@ -550,7 +740,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus,
             return (1);
         }
         /* init ports */
-        if (dpdk_init_port(cpus, i, num_rx_queues, num_tx_queues))
+        if (dpdk_init_port(cpus, opts, i, num_rx_queues, num_tx_queues))
             return (1);
         log_info("-> NIC port %i ready.", i);
     }
@@ -565,7 +755,7 @@ int init_dpdk_ports(struct cpus_bindings* cpus,
             return (1);
         }
         /* init ports */
-        if (dpdk_init_read_port(cpus, i, num_rx_queues, 0))
+        if (dpdk_init_read_port(cpus, opts, i, num_rx_queues, 0))
             return (1);
         log_info("-> NIC port %i (for read) ready.", i);
     }

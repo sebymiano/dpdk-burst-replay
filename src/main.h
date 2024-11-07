@@ -68,6 +68,7 @@ struct cmd_opts {
     int wait;
     int write_csv;
     int convert_to_json;
+    int use_mac_filter;
     int slow_mode;
     trace_t* traces;
     int nb_traces;

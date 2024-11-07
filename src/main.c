@@ -391,6 +391,22 @@ int check_needed_memory(const struct cmd_opts* opts, const struct pcap_ctx* pcap
     return (0);
 }
 
+static int cleanup_all_rules(uint16_t port_id) {
+    struct rte_flow_error error;
+    int retval;
+
+    // Flush all flow rules for the given port
+    retval = rte_flow_flush(port_id, &error);
+    if (retval != 0) {
+        fprintf(stderr, "Error flushing rules on port %u: %s\n", port_id, error.message);
+        return -1;
+    } else {
+        printf("All flow rules on port %u have been successfully removed.\n", port_id);
+    }
+
+    return 0;
+}
+
 int main(const int ac, char** av) {
     struct cmd_opts opts;
     struct cpus_bindings cpus;
@@ -488,6 +504,7 @@ mainExit:
     log_trace("Cleaning up dpdk");
     /* close ethernet devices */
     for (int i = 0; i < opts.nb_total_ports; i++) {
+        // cleanup_all_rules(i);
         log_trace("Stopping device %d", i);
         int retries = 5;
         do {

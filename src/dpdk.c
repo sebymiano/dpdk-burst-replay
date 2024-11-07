@@ -196,6 +196,64 @@ char** fill_eal_args(const struct cmd_opts* opts,
     return (eal_args);
 }
 
+static int create_drop_filter(uint16_t port_id) {
+  struct rte_flow_attr attr;
+  struct rte_flow_item pattern[2] = {};
+  struct rte_flow_action action[2] = {};
+  struct rte_flow_error error;
+  int retval;
+
+  // Initialize the attributes to match on incoming packets
+  memset(&attr, 0, sizeof(attr));
+  attr.ingress = 1;  // Match on ingress packets
+
+  // Define the action to drop the packet
+  struct rte_flow_item_eth eth_spec;
+  struct rte_flow_item_eth eth_mask;
+
+  memset(&eth_spec, 0, sizeof(eth_spec));
+  memset(&eth_mask, 0, sizeof(eth_mask));
+
+  uint8_t mac[RTE_ETHER_ADDR_LEN];
+  mac[0] = 0x10;
+  mac[1] = 0x10;
+  mac[2] = 0x10;
+  mac[3] = 0x10;
+  mac[4] = 0x10;
+  mac[5] = 0x00;
+
+  // Specify the source MAC address to match
+  rte_memcpy(&eth_spec.src.addr_bytes, mac, RTE_ETHER_ADDR_LEN);
+//   memset(&eth_mask.src.addr_bytes, 0xFF, RTE_ETHER_ADDR_LEN - 1);  // Full match on the source MAC
+
+  pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+  pattern[0].spec = &eth_spec;
+  pattern[0].mask = &eth_mask;
+  pattern[0].last = NULL;
+  pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+
+  action[0].type = RTE_FLOW_ACTION_TYPE_DROP;
+  action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+  // Validate the flow rule
+  retval = rte_flow_validate(port_id, &attr, pattern, action, &error);
+  if (retval != 0) {
+    fprintf(stderr, "Error validating drop rule: %s\n", error.message);
+    return -1;
+  }
+
+  // Create the flow rule
+  struct rte_flow *flow = rte_flow_create(port_id, &attr, pattern, action, &error);
+  if (!flow) {
+    fprintf(stderr, "Error creating drop rule: %s\n", error.message);
+    return -1;
+  } else {
+    printf("Created drop rule\n");
+  }
+
+  return 0;
+}
+
 // Function to create a flow rule for each source MAC address
 int create_mac_filter(uint16_t port_id, struct mac_to_queue_map *mac_map, size_t mac_map_size) {
     struct rte_flow_attr attr;
@@ -507,6 +565,11 @@ int dpdk_init_port(struct cpus_bindings* cpus,
         if (ret != 0) {
             return ret;
         }
+
+        ret = create_drop_filter(port);
+        if (ret != 0) {
+            return ret;
+        }
     }
 
     // uint16_t queues[num_rx_queues];
@@ -597,6 +660,11 @@ int dpdk_init_read_port(struct cpus_bindings* cpus,
     if (opts->use_mac_filter) {
         // Create MAC-based filtering rules
         ret = create_mac_filter(port, ports_mac_map[port], num_rx_queues);
+        if (ret != 0) {
+            return ret;
+        }
+
+        ret = create_drop_filter(port);
         if (ret != 0) {
             return ret;
         }
@@ -1333,8 +1401,8 @@ int start_all_threads(const struct cmd_opts* opts,
         sleep(1);
     }
 
-    log_info("Starting threads, 5 seconds to prepare...");
-    sleep(5);  // Wait for threads to be ready
+    log_info("Starting threads, 1 second to prepare...");
+    sleep(1);  // Wait for threads to be ready
 
     for (i = 0; i < (cpus->nb_needed_pcap_cpus + cpus->nb_needed_stats_cpus +
                      cpus->nb_needed_recv_cpus);

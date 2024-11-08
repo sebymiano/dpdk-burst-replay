@@ -31,7 +31,7 @@
 
 #define PG_JUMBO_FRAME_LEN (PG_JUMBO_ETHER_MTU + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN)
 #define PG_ETHER_MAX_JUMBO_FRAME_LEN PG_JUMBO_FRAME_LEN
-#define DEFAULT_MBUF_SIZE (PG_ETHER_MAX_JUMBO_FRAME_LEN + RTE_PKTMBUF_HEADROOM + sizeof(struct rte_mbuf))
+#define DEFAULT_MBUF_SIZE (PG_ETHER_MAX_JUMBO_FRAME_LEN + RTE_PKTMBUF_HEADROOM)
 
 #define TX_PTHRESH 36  // Default value of TX prefetch threshold register.
 #define TX_HTHRESH 0   // Default value of TX host threshold register.

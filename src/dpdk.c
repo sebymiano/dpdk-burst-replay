@@ -524,6 +524,18 @@ int dpdk_init_port(struct cpus_bindings* cpus,
             port_conf.rx_adv_conf.rss_conf.rss_hf);
     }
 
+    if (opts->enable_jumbo) {
+        if (dev_info.max_rx_pktlen < PG_ETHER_MAX_JUMBO_FRAME_LEN) {
+            log_error("Port %u does not support jumbo frames", port);
+            return (-1);
+        }
+        port_conf.rxmode.max_lro_pkt_size = RTE_ETHER_MAX_JUMBO_FRAME_LEN;
+        if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MULTI_SEGS) {
+            port_conf.txmode.offloads |=
+                RTE_ETH_TX_OFFLOAD_MULTI_SEGS;  // Enable multi-segment packets
+        }
+    }
+
     /* Configure for each port (ethernet device), the number of rx queues & tx
      * queues */
     log_info("Configuring port %d with %d rx queues and %d tx queues", port,
@@ -533,6 +545,15 @@ int dpdk_init_port(struct cpus_bindings* cpus,
                               &port_conf) < 0) {
         log_error("DPDK: RTE ETH Ethernet device configuration failed");
         return (-1);
+    }
+
+    if (opts->enable_jumbo) {
+        ret = rte_eth_dev_set_mtu(port, PG_JUMBO_ETHER_MTU);
+        if (ret < 0) {
+            log_error("DPDK: RTE ETH Ethernet device MTU set failed: %s",
+                      strerror(-ret));
+            return (-ret);
+        }
     }
 
     /* Then allocate and set up the transmit queues for this Ethernet device  */

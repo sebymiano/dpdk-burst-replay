@@ -1,30 +1,33 @@
+
 ---
 traces: 
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+  - path: "/users/smiano/maestro-eval/pcaps/zipf.pcap"
     tx_queues: 8
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+  - path: "/users/smiano/maestro-eval/pcaps/zipf.pcap"
     tx_queues: 8
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+  - path: "/users/smiano/maestro-eval/pcaps/zipf.pcap"
     tx_queues: 8
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+  - path: "/users/smiano/maestro-eval/pcaps/zipf.pcap"
     tx_queues: 8
-  - path: "/users/smiano/maestro-eval/pcaps/uniform_64B.pcap"
+  - path: "/users/smiano/maestro-eval/pcaps/zipf.pcap"
     tx_queues: 8
 numacore: 0
-nbruns: 100000000
-timeout: 10
+nbruns: -1
+timeout: 8
 max_mpps: -1
-max_mbps: -1
+max_mbps: 12500
 write_csv: True
 wait_enter: False
 slow_mode: False
 convert_to_json: True
+use_mac_filter: False
+enable_jumbo: False
 nb_rx_queues: 16
 nb_rx_cores: 4
 stats:
   - pci_id: 0000:51:00.0
-    file_name: "result_v1.csv"
+    file_name: "/users/smiano/maestro-eval/util/../build/dpdk-burst-replay/results_snd_port.csv"
   - pci_id: 0000:51:00.1
-    file_name: "result_v2.csv"
+    file_name: "/users/smiano/maestro-eval/util/../build/dpdk-burst-replay/results_rcv_port.csv"
 send_port_pci: 0000:51:00.0
 loglevel: TRACE

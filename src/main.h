@@ -27,10 +27,11 @@
 #define NUM_MBUFS ((64 * 1024) - 1)
 
 #define RTE_TEST_RX_DESC_DEFAULT 1024
+#define PG_JUMBO_ETHER_MTU 9216
 
-#define PG_JUMBO_FRAME_LEN (9600 + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN)
+#define PG_JUMBO_FRAME_LEN (PG_JUMBO_ETHER_MTU + RTE_ETHER_CRC_LEN + RTE_ETHER_HDR_LEN)
 #define PG_ETHER_MAX_JUMBO_FRAME_LEN PG_JUMBO_FRAME_LEN
-#define DEFAULT_MBUF_SIZE (PG_ETHER_MAX_JUMBO_FRAME_LEN + RTE_PKTMBUF_HEADROOM)
+#define DEFAULT_MBUF_SIZE (PG_ETHER_MAX_JUMBO_FRAME_LEN + RTE_PKTMBUF_HEADROOM + sizeof(struct rte_mbuf))
 
 #define TX_PTHRESH 36  // Default value of TX prefetch threshold register.
 #define TX_HTHRESH 0   // Default value of TX host threshold register.
@@ -69,6 +70,7 @@ struct cmd_opts {
     int write_csv;
     int convert_to_json;
     int use_mac_filter;
+    int enable_jumbo;
     int slow_mode;
     trace_t* traces;
     int nb_traces;

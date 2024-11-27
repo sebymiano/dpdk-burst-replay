@@ -413,7 +413,7 @@ int main(const int ac, char** av) {
     struct cpus_bindings cpus;
     struct dpdk_ctx* dpdk_cfgs;
     struct pcap_ctx* pcap_cfgs;
-    int ret;
+    int ret = 0;
     struct thread_ctx* stats_ctx = NULL;
 
     /* set default opts */
@@ -536,5 +536,5 @@ mainExit:
         log_trace("Cleaning up cpus_to_use");
         free(cpus.cpus_to_use);
     }
-    return (ret);
+    return 0;
 }

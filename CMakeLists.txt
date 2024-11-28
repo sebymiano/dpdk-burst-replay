@@ -33,6 +33,15 @@ else()
     message(FATAL_ERROR "libyaml not found. Please install libyaml and try again.")
 endif()
 
+find_library(LIBCSV_LIBRARY NAMES csv)
+
+if (LIBCSV_LIBRARY)
+    message(STATUS "libcsv found: ${LIBCSV_LIBRARY}")
+else()
+    # Display an error message if libcsv is not found
+    message(FATAL_ERROR "libcsv not found. Please install libcsv and try again.")
+endif()
+
 # Add the 'src' directory
 add_subdirectory(src)
 

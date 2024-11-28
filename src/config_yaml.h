@@ -44,6 +44,8 @@ typedef struct {
     bool enable_jumbo;
     bool wait_enter;
     bool slow_mode;
+    bool enable_rest_server;
+    int rest_server_port;
     stats_t* stats;
     unsigned stats_count;
     char* send_port_pci;
@@ -116,6 +118,8 @@ static const cyaml_schema_field_t top_mapping_schema[] = {
     CYAML_FIELD_BOOL("enable_jumbo", CYAML_FLAG_DEFAULT, config_t, enable_jumbo),
     CYAML_FIELD_BOOL("wait_enter", CYAML_FLAG_DEFAULT, config_t, wait_enter),
     CYAML_FIELD_BOOL("slow_mode", CYAML_FLAG_DEFAULT, config_t, slow_mode),
+    CYAML_FIELD_BOOL("enable_rest_server", CYAML_FLAG_DEFAULT, config_t, enable_rest_server),
+    CYAML_FIELD_INT("rest_server_port", CYAML_FLAG_DEFAULT, config_t, rest_server_port),
     CYAML_FIELD_UINT("nb_rx_queues",
                      CYAML_FLAG_DEFAULT,
                      config_t,

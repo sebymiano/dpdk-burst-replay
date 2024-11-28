@@ -72,6 +72,8 @@ struct cmd_opts {
     int use_mac_filter;
     int enable_jumbo;
     int slow_mode;
+    int enable_rest_server;
+    int rest_server_port;
     trace_t* traces;
     int nb_traces;
     char** stats;
@@ -161,6 +163,21 @@ struct pcap_ctx {
     unsigned int tx_queues;
 };
 
+struct http_shared_data {
+    pthread_mutex_t lock;   // Mutex for thread-safe access
+    pthread_cond_t cond;    // Condition variable to signal state changes
+    int start;              // Flag to indicate start
+    int exit;               // Flag to indicate exit
+    float rate_mbps;
+    float rate_mpps;
+};
+
+struct connection_info {
+    struct MHD_PostProcessor *post_processor;
+    char endpoint[128];
+    int response_code;
+    struct http_shared_data *shared_data; // Reference to shared data
+};
 /*
   FUNC PROTOTYPES
 */
@@ -204,5 +221,9 @@ void clean_pcap_ctx(struct pcap_ctx* pcap);
 /* UTILS.C */
 char* nb_oct_to_human_str(float size);
 unsigned int get_next_power_of_2(const unsigned int nb);
+
+/* HTTP SERVER.C */
+struct MHD_Daemon* start_http_server(const struct cmd_opts* opts, struct http_shared_data* data);
+int stop_http_server(struct MHD_Daemon* daemon);
 
 #endif /* __COMMON_H__ */

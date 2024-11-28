@@ -11,6 +11,7 @@ add_executable(dpdk-replay
     argparse.c
     log.c
     csv_to_json.c
+    rest_server.c
 )
 
 # Add CFLAGS for dpdk-replay
@@ -34,6 +35,12 @@ set(CYAML_STATIC_LDFLAGS "-L${CMAKE_CURRENT_BINARY_DIR}/../libs/libcyaml/lib;-l:
 message(STATUS "CYAML_STATIC_LDFLAGS: ${CYAML_STATIC_LDFLAGS}")
 target_compile_options(dpdk-replay PRIVATE ${CYAML_CFLAGS})
 target_link_libraries(dpdk-replay PRIVATE ${CYAML_STATIC_LDFLAGS})
+
+# Link with libmicrohttpd for REST server functionality
+pkg_check_modules(LIBMICROHTTPD REQUIRED libmicrohttpd)
+include_directories(${LIBMICROHTTPD_INCLUDE_DIRS})
+target_compile_options(dpdk-replay PRIVATE ${LIBMICROHTTPD_CFLAGS})
+target_link_libraries(dpdk-replay PRIVATE ${LIBMICROHTTPD_LIBRARIES})
 
 # If you need to link with 'libcsv', uncomment the following lines and make sure to find the package.
 target_link_libraries(dpdk-replay PRIVATE csv)

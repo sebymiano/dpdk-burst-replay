@@ -30,4 +30,6 @@ stats:
   - pci_id: 0000:51:00.1
     file_name: "/users/smiano/maestro-eval/util/../build/dpdk-burst-replay/results_rcv_port.csv"
 send_port_pci: 0000:51:00.0
+enable_rest_server: False
+rest_server_port: 5000
 loglevel: TRACE

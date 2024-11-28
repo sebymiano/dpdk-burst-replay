@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <rte_ethdev.h>
+#include <microhttpd.h> 
 
 #include "argparse.h"
 #include "config_yaml.h"
@@ -237,6 +238,14 @@ int parse_config_file(const char* config_file, struct cmd_opts* opts) {
     cfg->use_mac_filter ? (opts->use_mac_filter = 1) : (opts->use_mac_filter = 0);
     cfg->enable_jumbo ? (opts->enable_jumbo = 1) : (opts->enable_jumbo = 0);
     cfg->slow_mode ? (opts->slow_mode = 1) : (opts->slow_mode = 0);
+    cfg->enable_rest_server ? (opts->enable_rest_server = 1) : (opts->enable_rest_server = 0);
+    opts->rest_server_port = cfg->rest_server_port;
+
+    // Check if port is in the correct range
+    if ((opts->enable_rest_server) && (opts->rest_server_port < 1024 || opts->rest_server_port > 65535)) {
+        log_fatal("ERROR: The port must be between 1024 and 65535");
+        return EXIT_FAILURE;
+    }
 
     /* Check whether the read ports are correct */
     if (cfg->send_port_pci != NULL) {
@@ -415,6 +424,8 @@ int main(const int ac, char** av) {
     struct pcap_ctx* pcap_cfgs;
     int ret = 0;
     struct thread_ctx* stats_ctx = NULL;
+    struct MHD_Daemon* http_daemon = NULL;
+    struct http_shared_data http_data;
 
     /* set default opts */
     bzero(&cpus, sizeof(cpus));
@@ -495,10 +506,54 @@ int main(const int ac, char** av) {
     if (ret)
         goto mainExit;
 
-    /* Start all threads (PCAP and Stats) */
-    ret = start_all_threads(&opts, &cpus, dpdk_cfgs, pcap_cfgs, opts.nb_traces);
-    if (ret)
-        goto mainExit;
+    if (opts.enable_rest_server) {
+        log_info("Starting HTTP server on port %d", opts.rest_server_port);
+        http_daemon = start_http_server(&opts, &http_data);
+        if (http_daemon == NULL) {
+            goto mainExit;
+        }
+
+        pthread_mutex_init(&http_data.lock, NULL);
+        pthread_cond_init(&http_data.cond, NULL);
+        http_data.start = 0;
+        http_data.exit = 0;
+        http_data.rate_mbps = opts.max_mbps;
+        http_data.rate_mpps = opts.max_mpps;
+        
+        while (true) {
+            pthread_mutex_lock(&http_data.lock);
+
+            // Wait until 'start' or 'exit' is set
+            while (http_data.start == 0 && http_data.exit == 0) {
+                pthread_cond_wait(&http_data.cond, &http_data.lock);
+            }
+
+            if (http_data.exit) {
+                pthread_mutex_unlock(&http_data.lock);
+                break; // Exit the loop and terminate the program
+            }
+
+            if (http_data.start) {
+                opts.max_mbps = http_data.rate_mbps; // Update rate before starting threads
+                opts.max_mpps = http_data.rate_mpps; // Update rate before starting threads
+                http_data.start = 0;        // Reset the start flag for the next iteration
+            }
+
+            pthread_mutex_unlock(&http_data.lock);
+
+            log_trace("Starting with rate %f Mbps and %f Mpps", opts.max_mbps, opts.max_mpps);
+            /* Start all threads (PCAP and Stats) */
+            ret = start_all_threads(&opts, &cpus, dpdk_cfgs, pcap_cfgs, opts.nb_traces);
+            if (ret) {
+                goto mainExit;
+            }
+        }
+    } else {
+        ret = start_all_threads(&opts, &cpus, dpdk_cfgs, pcap_cfgs, opts.nb_traces);
+        if (ret) {
+            goto mainExit;
+        }
+    }
 
 mainExit:
     /* cleanup */
@@ -536,5 +591,11 @@ mainExit:
         log_trace("Cleaning up cpus_to_use");
         free(cpus.cpus_to_use);
     }
+
+    if (http_daemon) {
+        log_trace("Stopping HTTP server");
+        stop_http_server(http_daemon);
+    }
+
     return 0;
 }

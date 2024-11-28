@@ -10,8 +10,6 @@
 
 #include "main.h"
 
-#define PORT 8080
-
 static enum MHD_Result iterate_post(void *cls, enum MHD_ValueKind kind, const char *key,
                                     const char *filename, const char *content_type,
                                     const char *transfer_encoding, const char *data, uint64_t off,
@@ -131,13 +129,13 @@ struct MHD_Daemon *start_http_server(const struct cmd_opts* opts, struct http_sh
     if (!opts)
         return (NULL);
 
-    daemon = MHD_start_daemon(MHD_USE_POLL_INTERNAL_THREAD, PORT, NULL, NULL, &request_handler, data, MHD_OPTION_END);
+    daemon = MHD_start_daemon(MHD_USE_POLL_INTERNAL_THREAD, opts->rest_server_port, NULL, NULL, &request_handler, data, MHD_OPTION_END);
     if (daemon == NULL) {
-        log_error("Failed to start HTTP server on port %d", PORT);
+        log_error("Failed to start HTTP server on port %d", opts->rest_server_port);
         return (NULL);
     }
 
-    log_info("HTTP server started on port %d", PORT);
+    log_info("HTTP server started on port %d", opts->rest_server_port);
     return (daemon);
 }
 

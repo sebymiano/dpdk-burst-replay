@@ -236,6 +236,7 @@ int parse_config_file(const char* config_file, struct cmd_opts* opts) {
     cfg->convert_to_json ? (opts->convert_to_json = 1) : (opts->convert_to_json = 0);
     cfg->use_mac_filter ? (opts->use_mac_filter = 1) : (opts->use_mac_filter = 0);
     cfg->enable_jumbo ? (opts->enable_jumbo = 1) : (opts->enable_jumbo = 0);
+    cfg->use_only_tx ? (opts->use_only_tx = 1) : (opts->use_only_tx = 0);
     cfg->slow_mode ? (opts->slow_mode = 1) : (opts->slow_mode = 0);
 
     /* Check whether the read ports are correct */

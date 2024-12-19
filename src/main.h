@@ -71,6 +71,7 @@ struct cmd_opts {
     int convert_to_json;
     int use_mac_filter;
     int enable_jumbo;
+    int use_only_tx;
     int slow_mode;
     trace_t* traces;
     int nb_traces;
@@ -150,6 +151,7 @@ struct thread_ctx {
     int timeout;
     enum thread_type t_type;
     unsigned int thread_id;
+    bool enabled;
 };
 
 struct pcap_ctx {

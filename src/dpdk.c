@@ -536,6 +536,11 @@ int dpdk_init_port(struct cpus_bindings* cpus,
         }
     }
 
+    if (opts->use_only_tx) {
+        log_info("Only TX mode enabled, no RX queues will be configured");
+        num_rx_queues = 0;
+    }
+
     /* Configure for each port (ethernet device), the number of rx queues & tx
      * queues */
     log_info("Configuring port %d with %d rx queues and %d tx queues", port,
@@ -568,10 +573,12 @@ int dpdk_init_port(struct cpus_bindings* cpus,
         }
     }
 
-    if (dpdk_init_rx_queues(cpus, port, num_rx_queues) != 0) {
-        log_error("DPDK: Error during initialization of RX queues for port %d",
-                  port);
-        return (-1);
+    if (!opts->use_only_tx) {
+        if (dpdk_init_rx_queues(cpus, port, num_rx_queues) != 0) {
+            log_error("DPDK: Error during initialization of RX queues for port %d",
+                    port);
+            return (-1);
+        }
     }
 
     /* Start the ethernet device */
@@ -959,6 +966,10 @@ int remote_thread(void* thread_ctx) {
         log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id,
                   ctx->rx_port_id, ctx->tx_port_id);
     } else if (ctx->t_type == RECV_THREAD) {
+        if (!ctx->enabled) {
+            log_trace("[Thread %d] Disabling stats thread due to only-tx config", thread_id);
+            return (0);
+        }
         log_trace("[Thread %d] This thread is a RX thread", thread_id);
         log_trace("[Thread %d] RX port id: %d, TX port id: %d", thread_id,
                   ctx->rx_port_id, ctx->tx_port_id);
@@ -1311,16 +1322,17 @@ int start_all_threads(const struct cmd_opts* opts,
         } else {
             ctx[i].tx_rate_cycles = get_tx_cycles_mbps(&pcap_cfgs[i], opts, cpus->nb_needed_pcap_cpus);
         }
+        ctx[i].enabled = true;
     }
 
     int rx_queues_per_core = opts->nb_rx_queues / opts->nb_rx_cores;
     int rx_remainder_queues = opts->nb_rx_queues % opts->nb_rx_cores;
 
-    log_trace("Setting contex for recv threads: %d", opts->nb_stats);
+    log_trace("Setting context for recv threads: %d", opts->nb_stats);
     for (int k = 0; k < opts->nb_stats; k++) {
         /* Here I set the context for the recv thread */
         for (int j = 0, i = cpus->nb_needed_pcap_cpus + (k * opts->nb_rx_cores);
-             j < opts->nb_rx_cores; i++, j++) {
+            j < opts->nb_rx_cores; i++, j++) {
             ctx[i].sem = &sem;
             ctx[i].sem_stop = &sem_stop;
             ctx[i].rx_port_id = k;
@@ -1342,6 +1354,7 @@ int start_all_threads(const struct cmd_opts* opts,
                 (j < rx_remainder_queues ? j : rx_remainder_queues);
             ctx[i].nb_rx_queues_end =
                 ctx[i].nb_rx_queues_start + assigned_queues - 1;
+            ctx[i].enabled = (opts->use_only_tx == 0);
         }
     }
 
@@ -1366,6 +1379,7 @@ int start_all_threads(const struct cmd_opts* opts,
         ctx[i].thread_id = i;
         ctx[i].t_type = STATS_THREAD;
         ctx[i].csv_ptr = NULL;
+        ctx[i].enabled = true;
         int port_no = i - cpus->nb_needed_pcap_cpus - cpus->nb_needed_recv_cpus;
         /* Initialize CSV files if the corresponding flag is set */
         if (opts->write_csv) {
